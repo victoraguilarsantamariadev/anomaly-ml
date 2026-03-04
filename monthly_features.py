@@ -62,6 +62,13 @@ RELATIVE_EXTENDED_FEATURE_COLUMNS = RELATIVE_FEATURE_COLUMNS + [
     "spei_index",
 ]
 
+# Features auxiliares de datasets adicionales (contadores, regenerada)
+AUXILIARY_FEATURE_COLUMNS = [
+    "smart_meter_ratio",
+    "avg_calibre",
+    "regenerada_ratio",
+]
+
 
 def compute_monthly_features(df: pd.DataFrame,
                               external_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
@@ -381,6 +388,124 @@ def _add_external_features(df: pd.DataFrame, external_df: pd.DataFrame) -> pd.Da
         df["spei_index"] = 0.0
     else:
         df["spei_index"] = df["spei_index"].fillna(0.0)
+
+    return df
+
+
+# ─────────────────────────────────────────────────────────────────
+# Enrichment con datos auxiliares
+# ─────────────────────────────────────────────────────────────────
+
+def enrich_with_telelectura(df: pd.DataFrame, contadores_path: str) -> pd.DataFrame:
+    """
+    Enriquece features con datos de contadores-telelectura.
+
+    Añade por barrio (static, cross-sectional):
+      - smart_meter_ratio: % de contadores con telelectura (vs manual)
+      - avg_calibre: calibre medio de contadores (13=doméstico, 20+=comercial)
+
+    Args:
+        df: DataFrame con features (output de compute_monthly_features)
+        contadores_path: ruta al CSV de contadores-telelectura
+    """
+    import os
+    if not os.path.exists(contadores_path):
+        return df
+
+    cont = pd.read_csv(contadores_path)
+
+    # Normalizar USO: quitar acentos para match con hackathon
+    uso_map = {
+        "DOMÉSTICO": "DOMESTICO",
+        "COMERCIAL": "COMERCIAL",
+        "NO DOMÉSTICO": "NO DOMESTICO",
+        "INDUSTRIAL": "INDUSTRIAL",
+        "COMUNIDAD PROPIETARIOS": "DOMESTICO",  # agrupar con doméstico
+    }
+    cont["uso_norm"] = cont["USO"].map(uso_map).fillna("OTRO")
+
+    # Agrupar por barrio + uso normalizado
+    stats = cont.groupby(["BARRIO", "uso_norm"]).agg(
+        total_meters=("CALIBRE", "size"),
+        smart_count=("SISTEMA", lambda x: (x == "Leer por telelectura").sum()),
+        avg_calibre=("CALIBRE", "mean"),
+    ).reset_index()
+
+    stats["smart_meter_ratio"] = stats["smart_count"] / stats["total_meters"]
+    stats = stats.rename(columns={"BARRIO": "barrio", "uso_norm": "uso"})
+    stats = stats[["barrio", "uso", "smart_meter_ratio", "avg_calibre"]]
+
+    # Merge con features (barrio + uso)
+    df = df.copy()
+    df["_barrio_clean"] = df["barrio"].str.strip()
+    df["_uso_clean"] = df["uso"].str.strip()
+
+    df = df.merge(
+        stats,
+        left_on=["_barrio_clean", "_uso_clean"],
+        right_on=["barrio", "uso"],
+        how="left",
+        suffixes=("", "_cont"),
+    )
+    df = df.drop(columns=["barrio_cont", "uso_cont", "_barrio_clean", "_uso_clean"],
+                 errors="ignore")
+
+    # Rellenar NaN con valores neutros
+    df["smart_meter_ratio"] = df["smart_meter_ratio"].fillna(0.5)
+    df["avg_calibre"] = df["avg_calibre"].fillna(13.0)
+
+    return df
+
+
+def enrich_with_regenerada(df: pd.DataFrame, regenerada_path: str) -> pd.DataFrame:
+    """
+    Enriquece features con datos de consumo de agua regenerada por barrio.
+
+    Añade:
+      - regenerada_ratio: consumo_regenerada / consumo_potable (solo 2024)
+        Barrios con agua regenerada son típicamente industriales/agrícolas.
+
+    Args:
+        df: DataFrame con features (output de compute_monthly_features)
+        regenerada_path: ruta al CSV de consumos regenerada
+    """
+    import os
+    if not os.path.exists(regenerada_path):
+        df["regenerada_ratio"] = 0.0
+        return df
+
+    reg = pd.read_csv(regenerada_path)
+    # Columnas: LOCALIDAD, BARRIO, MES, CONSUMO_2024
+
+    # Calcular total anual regenerada por barrio
+    reg_annual = reg.groupby("BARRIO")["CONSUMO_2024"].sum().reset_index()
+    reg_annual = reg_annual.rename(columns={"BARRIO": "barrio", "CONSUMO_2024": "regenerada_total"})
+
+    # Calcular total anual potable por barrio (del dataset principal, solo 2024)
+    df = df.copy()
+    df_2024 = df[df["fecha"].dt.year == 2024]
+    potable_annual = (
+        df_2024.groupby(df_2024["barrio"].str.strip())["consumo_litros"]
+        .sum()
+        .reset_index()
+        .rename(columns={"barrio": "barrio", "consumo_litros": "potable_total"})
+    )
+
+    # Merge y calcular ratio
+    ratios = reg_annual.merge(potable_annual, on="barrio", how="outer")
+    ratios["regenerada_ratio"] = np.where(
+        ratios["potable_total"] > 0,
+        ratios["regenerada_total"].fillna(0) / ratios["potable_total"],
+        0.0,
+    )
+    ratios = ratios[["barrio", "regenerada_ratio"]]
+
+    # Merge con df principal
+    df["_barrio_clean"] = df["barrio"].str.strip()
+    df = df.merge(ratios, left_on="_barrio_clean", right_on="barrio",
+                  how="left", suffixes=("", "_reg"))
+    df = df.drop(columns=["barrio_reg", "_barrio_clean"], errors="ignore")
+    df["regenerada_ratio"] = df["regenerada_ratio"].fillna(0.0)
 
     return df
 

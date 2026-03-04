@@ -115,11 +115,58 @@ def score_chronos(
     return anomalies
 
 
+def score_chronos_raw(
+    train_values: np.ndarray,
+    test_values: np.ndarray,
+    num_samples: int = 30,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Ejecuta inferencia Chronos y devuelve (medians, stds) sin aplicar threshold.
+    Permite probar múltiples thresholds sin re-ejecutar la inferencia costosa.
+    """
+    import torch
+
+    pipeline = _get_pipeline()
+    medians = np.zeros(len(test_values))
+    stds = np.zeros(len(test_values))
+
+    for i in range(len(test_values)):
+        if i == 0:
+            context = train_values.copy()
+        else:
+            context = np.concatenate([train_values, test_values[:i]])
+
+        context_tensor = torch.tensor(context, dtype=torch.float32).unsqueeze(0)
+        forecast = pipeline.predict(context_tensor, prediction_length=1, num_samples=num_samples)
+        samples = forecast[0, :, 0].numpy()
+        medians[i] = np.median(samples)
+        stds[i] = np.std(samples)
+
+    return medians, stds
+
+
+def apply_chronos_threshold(
+    medians: np.ndarray,
+    stds: np.ndarray,
+    test_values: np.ndarray,
+    threshold_sigma: float = 2.0,
+) -> np.ndarray:
+    """Aplica threshold sobre resultados pre-computados de score_chronos_raw()."""
+    anomalies = np.zeros(len(test_values), dtype=bool)
+    for i in range(len(test_values)):
+        if stds[i] > 0:
+            anomalies[i] = abs(test_values[i] - medians[i]) > threshold_sigma * stds[i]
+        else:
+            anomalies[i] = abs(test_values[i] - medians[i]) > abs(medians[i]) * 0.5 if medians[i] != 0 else test_values[i] != 0
+    return anomalies
+
+
 def evaluate_chronos(
     train_values: np.ndarray,
     test_values: np.ndarray,
     true_anomaly_mask: np.ndarray,
     threshold_sigma: float = 2.0,
+    num_samples: int = 50,
 ) -> dict:
     """
     Evalúa Chronos contra un ground truth.
@@ -127,7 +174,9 @@ def evaluate_chronos(
     Returns:
         dict con precision, recall, F1
     """
-    detected = score_chronos(train_values, test_values, threshold_sigma=threshold_sigma)
+    detected = score_chronos(train_values, test_values,
+                             threshold_sigma=threshold_sigma,
+                             num_samples=num_samples)
 
     tp = int(np.sum(detected & true_anomaly_mask))
     fp = int(np.sum(detected & ~true_anomaly_mask))
@@ -147,6 +196,8 @@ def run_validation_chronos(
     barrio: str,
     uso: str,
     anomalies: list | None = None,
+    threshold_sigma: float = 2.0,
+    num_samples: int = 50,
 ) -> dict | None:
     """
     Valida Chronos para un barrio del hackathon.
@@ -177,7 +228,9 @@ def run_validation_chronos(
         if 0 <= rel < len(test_vals):
             true_labels[rel] = True
 
-    return evaluate_chronos(train_vals, test_vals, true_labels)
+    return evaluate_chronos(train_vals, test_vals, true_labels,
+                            threshold_sigma=threshold_sigma,
+                            num_samples=num_samples)
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -97,6 +97,7 @@ def evaluate_prophet(
     test_dates: pd.DatetimeIndex | np.ndarray,
     true_anomaly_mask: np.ndarray,
     interval_width: float = 0.95,
+    changepoint_prior_scale: float = 0.05,
 ) -> dict:
     """
     Evalúa Prophet contra un ground truth.
@@ -107,6 +108,7 @@ def evaluate_prophet(
     detected = score_prophet(
         train_values, test_values, train_dates, test_dates,
         interval_width=interval_width,
+        changepoint_prior_scale=changepoint_prior_scale,
     )
 
     tp = int(np.sum(detected & true_anomaly_mask))
@@ -127,6 +129,8 @@ def run_validation_prophet(
     barrio: str,
     uso: str,
     anomalies: list | None = None,
+    interval_width: float = 0.95,
+    changepoint_prior_scale: float = 0.05,
 ) -> dict | None:
     """
     Valida Prophet para un barrio del hackathon.
@@ -159,7 +163,9 @@ def run_validation_prophet(
         if 0 <= rel < len(test_vals):
             true_labels[rel] = True
 
-    return evaluate_prophet(train_vals, test_vals, train_dates, test_dates, true_labels)
+    return evaluate_prophet(train_vals, test_vals, train_dates, test_dates, true_labels,
+                            interval_width=interval_width,
+                            changepoint_prior_scale=changepoint_prior_scale)
 
 
 # ─────────────────────────────────────────────────────────────────

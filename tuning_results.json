@@ -1,0 +1,15 @@
+{
+  "m2": {
+    "contamination": 0.01
+  },
+  "m5": {
+    "iqr_multiplier": 3.0
+  },
+  "m6": {
+    "threshold_sigma": 3.5
+  },
+  "m7": {
+    "interval_width": 0.99,
+    "changepoint_prior_scale": 0.3
+  }
+}

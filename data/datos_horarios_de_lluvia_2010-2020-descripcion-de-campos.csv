@@ -1,0 +1,36 @@
+Campos incluidos:
+NOMBRE: Nombre estación
+Año
+Mes
+Día
+
+PH01: Precipitación en la hora previa a 01
+PH02: Precipitación en la hora previa a 02
+PH03: Precipitación en la hora previa a 03
+PH04: Precipitación en la hora previa a 04
+PH05: Precipitación en la hora previa a 05
+PH06: Precipitación en la hora previa a 06
+PH07: Precipitación en la hora previa a 07
+PH08: Precipitación en la hora previa a 08
+PH09: Precipitación en la hora previa a 09
+PH10: Precipitación en la hora previa a 10
+PH11: Precipitación en la hora previa a 11
+PH12: Precipitación en la hora previa a 12
+PH13: Precipitación en la hora previa a 13
+PH14: Precipitación en la hora previa a 14
+PH15: Precipitación en la hora previa a 15
+PH16: Precipitación en la hora previa a 16
+PH17: Precipitación en la hora previa a 17
+PH18: Precipitación en la hora previa a 18
+PH19: Precipitación en la hora previa a 19
+PH20: Precipitación en la hora previa a 20
+PH21: Precipitación en la hora previa a 21
+PH22: Precipitación en la hora previa a 22
+PH23: Precipitación en la hora previa a 23
+PH24: Precipitación en la hora previa a 24
+
+Unidades y valores especiales:
+
+Precipitación en décimas de milímetro
+Valores especiales de precipitación:
+-3: Precipitación inapreciable (inferior a 1 décima)

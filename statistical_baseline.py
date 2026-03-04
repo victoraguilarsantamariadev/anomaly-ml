@@ -58,7 +58,8 @@ def score_iqr(values: np.ndarray, train_values: Optional[np.ndarray] = None,
 
 
 def evaluate_baseline(train_values: np.ndarray, test_values: np.ndarray,
-                      true_anomaly_mask: np.ndarray) -> dict:
+                      true_anomaly_mask: np.ndarray,
+                      iqr_multiplier: float = 1.5) -> dict:
     """
     Evalúa ambos métodos (3-sigma e IQR) contra un ground truth.
 
@@ -66,13 +67,17 @@ def evaluate_baseline(train_values: np.ndarray, test_values: np.ndarray,
         train_values:      valores del train set (para calcular estadísticas)
         test_values:       valores del test set (donde están las anomalías inyectadas)
         true_anomaly_mask: booleano indicando posiciones de anomalías reales
+        iqr_multiplier:    factor IQR (1.5=estándar, 2.0+= conservador)
 
     Returns:
         dict con métricas para cada método
     """
     results = {}
     for name, method in [("3sigma", score_3sigma), ("iqr", score_iqr)]:
-        detected = method(test_values, train_values)
+        if name == "iqr":
+            detected = method(test_values, train_values, multiplier=iqr_multiplier)
+        else:
+            detected = method(test_values, train_values)
         tp = int(np.sum(detected & true_anomaly_mask))
         fp = int(np.sum(detected & ~true_anomaly_mask))
         fn = int(np.sum(~detected & true_anomaly_mask))

@@ -1,11 +1,14 @@
 """
-Pipeline unificado: ejecuta 4 modelos sobre el dataset del hackathon y muestra resultados.
+Pipeline unificado: ejecuta todos los modelos sobre el dataset del hackathon.
 
 Modelos:
   M2  — IsolationForest cross-sectional (compara barrios entre si)
   M5  — 3-sigma + IQR (outliers estadisticos puros)
   M6  — Amazon Chronos (transformer pre-entrenado, forecasting)
   M7  — Facebook Prophet (descomposicion estacional)
+  M8  — Agua No Registrada (caudal inyectado vs consumo facturado)
+  M9  — Nighttime Minimum Flow (consumo nocturno anomalo)
+  M10 — Anomalias en lecturas individuales de contadores
 
 Uso:
   python run_all_models.py                         # todos los barrios DOMESTICO
@@ -37,8 +40,17 @@ from monthly_features import (
     EXTENDED_FEATURE_COLUMNS,
     RELATIVE_FEATURE_COLUMNS,
     RELATIVE_EXTENDED_FEATURE_COLUMNS,
+    AUXILIARY_FEATURE_COLUMNS,
+    enrich_with_telelectura,
+    enrich_with_regenerada,
 )
 from statistical_baseline import score_3sigma, score_iqr
+from anr_detector import load_caudal_monthly, load_consumo_monthly, compute_anr, detect_anr_anomalies
+from nightflow_detector import load_hourly_data, compute_night_day_ratios, detect_nmf_anomalies
+from meter_reading_detector import (
+    load_all_readings, preprocess_readings, detect_reading_anomalies,
+    compute_monthly_stats,
+)
 
 DATA_FILE = "data/datos-hackathon-amaem.xlsx-set-de-datos-.csv"
 
@@ -60,6 +72,10 @@ def load_data(csv_path: str, with_external: bool = False):
     return df, external_df
 
 
+CONTADORES_PATH = "data/contadores-telelectura-instalados-solo-alicante_hackaton-dataart-contadores-telelectura-instalad.csv"
+REGENERADA_PATH = "data/_consumos_alicante_regenerada_barrio_mes-2024_-consumos_alicante_regenerada_barrio_mes-2024.csv.csv"
+
+
 def run_m2(df_all: pd.DataFrame, external_df=None,
            uso_filter: str = "DOMESTICO", contamination: float = 0.05):
     """
@@ -74,13 +90,18 @@ def run_m2(df_all: pd.DataFrame, external_df=None,
     # Calcular features (con o sin datos externos)
     df_features = compute_monthly_features(df_all, external_df=external_df)
 
+    # Enriquecer con datos auxiliares (contadores telelectura, agua regenerada)
+    df_features = enrich_with_telelectura(df_features, CONTADORES_PATH)
+    df_features = enrich_with_regenerada(df_features, REGENERADA_PATH)
+
     # Filtrar por tipo de uso
     df_uso = df_features[df_features["uso"].str.strip() == uso_filter].copy()
     df_uso = df_uso.sort_values(["barrio_key", "fecha"]).reset_index(drop=True)
 
-    # Usar features relativos (sin valores absolutos que llevan tendencia global)
+    # Usar features relativos + auxiliares
     use_extended = external_df is not None
     feature_cols = RELATIVE_EXTENDED_FEATURE_COLUMNS if use_extended else RELATIVE_FEATURE_COLUMNS
+    feature_cols = feature_cols + AUXILIARY_FEATURE_COLUMNS
     available_cols = [c for c in feature_cols if c in df_uso.columns]
 
     # Split temporal: primeros 24 meses para train, ultimos 12 para test
@@ -138,16 +159,19 @@ def run_m2(df_all: pd.DataFrame, external_df=None,
 
 
 def run_m5(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
-           iqr_multiplier: float = 2.0):
+           iqr_multiplier: float = 2.0, min_deviation: float = 0.10):
     """
     M5 — 3-sigma + IQR sobre deviation_from_group_trend.
     Para cada barrio, calcula estadisticas de desviacion sobre los primeros 24 meses
     y detecta outliers en los ultimos 12.
 
+    Filtro de significancia practica: solo flag si |desviacion| > min_deviation.
+    Esto evita falsos positivos en barrios estables con varianza baja.
+
     Detecta: barrios cuya desviacion del grupo es extrema.
     """
     print(f"\n  [M5] 3-sigma + IQR sobre desviacion del grupo "
-          f"(iqr_multiplier={iqr_multiplier})...")
+          f"(iqr_multiplier={iqr_multiplier}, min_dev={min_deviation:.0%})...")
 
     df_features = compute_monthly_features(df_all)
     df_uso = df_features[df_features["uso"].str.strip() == uso_filter].copy()
@@ -177,12 +201,16 @@ def run_m5(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
         sigma_flags = score_3sigma(test_vals, train_vals)
         iqr_flags = score_iqr(test_vals, train_vals, multiplier=iqr_multiplier)
 
+        # Filtro de significancia practica: requiere desviacion minima
+        # Evita flagear barrios con 3% de desviacion solo porque su varianza es baja
+        practical_flags = np.abs(test_vals) >= min_deviation
+
         for i, (_, row) in enumerate(test.iterrows()):
             results.append({
                 "barrio_key": barrio_key,
                 "fecha": row["fecha"],
-                "is_anomaly_3sigma": bool(sigma_flags[i]),
-                "is_anomaly_iqr": bool(iqr_flags[i]),
+                "is_anomaly_3sigma": bool(sigma_flags[i] and practical_flags[i]),
+                "is_anomaly_iqr": bool(iqr_flags[i] and practical_flags[i]),
             })
 
     result = pd.DataFrame(results)
@@ -331,8 +359,170 @@ def run_m7(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
     return result
 
 
+def run_m8(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
+           anr_threshold: float = 2.0) -> pd.DataFrame:
+    """
+    M8 — Agua No Registrada (ANR).
+    Compara caudal inyectado por sector vs consumo facturado por barrio.
+    ANR alto = perdidas tecnicas (fugas) o comerciales (fraude).
+
+    Solo 2024 (unico año con datos de caudal horario).
+    """
+    caudal_path = "data/_caudal_medio_sector_hidraulico_hora_2024_-caudal_medio_sector_hidraulico_hora_2024.csv"
+    if not Path(caudal_path).exists():
+        print(f"\n  [M8] ANR — SKIP (no se encuentra {caudal_path})")
+        return pd.DataFrame()
+
+    print(f"\n  [M8] Agua No Registrada — ANR (threshold_ratio={anr_threshold})...")
+
+    caudal_monthly = load_caudal_monthly(caudal_path)
+    consumo_monthly = load_consumo_monthly(DATA_FILE, uso_filter=None)  # todos los usos para ANR
+    anr = compute_anr(caudal_monthly, consumo_monthly)
+    barrio_stats = detect_anr_anomalies(anr, threshold_ratio=anr_threshold)
+
+    n_anomalies = barrio_stats["is_anomaly_anr"].sum()
+    n_barrios = len(barrio_stats)
+    print(f"    {n_anomalies} barrios con ANR anomalo de {n_barrios} mapeados")
+
+    # Expandir a formato por (barrio_key, fecha) para merge con otros modelos
+    # M8 es anual por barrio → marcamos todos los meses 2024 del barrio como anomalia
+    anomalous_barrios = set(
+        barrio_stats[barrio_stats["is_anomaly_anr"]]["barrio"].values
+    )
+
+    # Preparar resultado con formato compatible
+    df_2024 = df_all[pd.to_datetime(df_all["fecha"]).dt.year == 2024].copy()
+    if uso_filter:
+        df_2024 = df_2024[df_2024["uso"].str.strip() == uso_filter]
+
+    df_2024["barrio_clean"] = df_2024["barrio"].str.strip()
+    df_2024["barrio_key"] = df_2024["barrio_clean"] + "__" + df_2024["uso"].str.strip()
+    df_2024["fecha"] = pd.to_datetime(df_2024["fecha"])
+
+    result = df_2024[["barrio_key", "fecha"]].copy()
+    result["is_anomaly_anr"] = df_2024["barrio_clean"].isin(anomalous_barrios)
+
+    # Añadir ANR ratio como score
+    barrio_ratio = barrio_stats.set_index("barrio")["avg_anr_ratio"].to_dict()
+    result["anr_ratio"] = df_2024["barrio_clean"].map(barrio_ratio).fillna(0)
+
+    if len(anomalous_barrios) > 0:
+        for b in sorted(anomalous_barrios):
+            ratio = barrio_ratio.get(b, 0)
+            print(f"      {b}: ANR ratio={ratio:.1f}")
+
+    return result
+
+
+def run_m9(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
+           zscore_threshold: float = 2.0) -> pd.DataFrame:
+    """
+    M9 — Nighttime Minimum Flow (NMF).
+    Analiza caudal horario 2am-5am vs 10am-18h por sector hidraulico.
+    Ratio nocturno alto = fugas o uso no autorizado.
+    """
+    caudal_path = "data/_caudal_medio_sector_hidraulico_hora_2024_-caudal_medio_sector_hidraulico_hora_2024.csv"
+    if not Path(caudal_path).exists():
+        print(f"\n  [M9] NMF — SKIP (no se encuentra {caudal_path})")
+        return pd.DataFrame()
+
+    print(f"\n  [M9] Nighttime Minimum Flow — NMF (zscore={zscore_threshold})...")
+
+    df_hourly = load_hourly_data(caudal_path)
+    daily = compute_night_day_ratios(df_hourly)
+    sector_stats = detect_nmf_anomalies(daily, zscore_threshold=zscore_threshold)
+
+    n_anomalies = sector_stats["is_anomaly_nmf"].sum()
+    n_sectors = len(sector_stats)
+    print(f"    {n_anomalies} sectores con NMF anomalo de {n_sectors} analizados")
+
+    # Mapear sectores anomalos a barrios
+    from sector_mapping import get_mapped_sectors
+    mapping = get_mapped_sectors()
+    anomalous_sectors = set(sector_stats[sector_stats["is_anomaly_nmf"]]["SECTOR"].values)
+    anomalous_barrios = set()
+    for sector in anomalous_sectors:
+        barrio = mapping.get(sector)
+        if barrio:
+            anomalous_barrios.add(barrio)
+            print(f"      {sector} → {barrio} (ratio={sector_stats[sector_stats['SECTOR']==sector]['avg_ratio'].values[0]:.1f})")
+
+    # Crear resultado por (barrio_key, fecha) — marcar todos los meses 2024
+    df_2024 = df_all[pd.to_datetime(df_all["fecha"]).dt.year == 2024].copy()
+    if uso_filter:
+        df_2024 = df_2024[df_2024["uso"].str.strip() == uso_filter]
+
+    df_2024["barrio_clean"] = df_2024["barrio"].str.strip()
+    df_2024["barrio_key"] = df_2024["barrio_clean"] + "__" + df_2024["uso"].str.strip()
+    df_2024["fecha"] = pd.to_datetime(df_2024["fecha"])
+
+    result = df_2024[["barrio_key", "fecha"]].copy()
+    result["is_anomaly_nmf"] = df_2024["barrio_clean"].isin(anomalous_barrios)
+
+    return result
+
+
+def run_m10(df_all: pd.DataFrame, uso_filter: str = "DOMESTICO",
+            iqr_multiplier: float = 3.0) -> pd.DataFrame:
+    """
+    M10 — Anomalias en lecturas individuales de contadores.
+    Analiza ~4M lecturas de m3 registrados/facturados.
+    Detecta meses con tasa anomala de lecturas extremas, zeros, o retrasos.
+
+    Como no hay barrio en los datos de lecturas, marca los meses donde
+    la tasa de anomalia es significativamente alta (afecta a todos los barrios).
+    """
+    import glob as _glob
+    pattern = "data/m3-registrados_facturados-tll_*-solo-alicante-*.csv"
+    files = sorted(_glob.glob(pattern))
+    if not files:
+        print(f"\n  [M10] Lecturas — SKIP (no se encuentran archivos m3)")
+        return pd.DataFrame()
+
+    print(f"\n  [M10] Anomalias en lecturas individuales (iqr={iqr_multiplier})...")
+
+    readings = load_all_readings(pattern)
+    if readings.empty:
+        return pd.DataFrame()
+
+    readings = preprocess_readings(readings)
+    readings = detect_reading_anomalies(readings, iqr_multiplier=iqr_multiplier)
+    monthly_stats = compute_monthly_stats(readings)
+
+    n_anom_months = monthly_stats["is_anomalous_month"].sum()
+    total_readings = len(readings)
+    total_anomalies = readings["is_anomaly_reading"].sum()
+    print(f"    {total_readings:,} lecturas, {total_anomalies:,} anomalas ({total_anomalies/total_readings*100:.1f}%)")
+    print(f"    {n_anom_months} meses con tasa anomala elevada")
+
+    # Mapear a formato (barrio_key, fecha): marcar meses anomalos para todos los barrios
+    anomalous_periods = set(
+        monthly_stats[monthly_stats["is_anomalous_month"]]["year_month"].astype(str).values
+    )
+
+    if anomalous_periods:
+        for p in sorted(anomalous_periods):
+            rate = monthly_stats[monthly_stats["year_month"].astype(str) == p]["anomaly_rate"].values[0]
+            print(f"      {p}: tasa anomala {rate:.1f}%")
+
+    df_tmp = df_all.copy()
+    df_tmp["fecha"] = pd.to_datetime(df_tmp["fecha"])
+    if uso_filter:
+        df_tmp = df_tmp[df_tmp["uso"].str.strip() == uso_filter]
+    df_tmp["barrio_key"] = df_tmp["barrio"].str.strip() + "__" + df_tmp["uso"].str.strip()
+    df_tmp["year_month_str"] = df_tmp["fecha"].dt.to_period("M").astype(str)
+
+    result = df_tmp[["barrio_key", "fecha"]].copy()
+    result["is_anomaly_readings"] = df_tmp["year_month_str"].isin(anomalous_periods)
+
+    return result
+
+
 def collect_results(m2_results: pd.DataFrame, m5_results: pd.DataFrame,
-                    m6_results: pd.DataFrame, m7_results: pd.DataFrame) -> pd.DataFrame:
+                    m6_results: pd.DataFrame, m7_results: pd.DataFrame,
+                    m8_results: pd.DataFrame = None,
+                    m9_results: pd.DataFrame = None,
+                    m10_results: pd.DataFrame = None) -> pd.DataFrame:
     """
     Merge todos los resultados por (barrio_key, fecha).
     Anade columna con cuantos modelos detectan anomalia.
@@ -372,13 +562,42 @@ def collect_results(m2_results: pd.DataFrame, m5_results: pd.DataFrame,
     else:
         result["is_anomaly_prophet"] = np.nan  # NaN = no ejecutado
 
+    # Merge M8 (ANR)
+    if m8_results is not None and len(m8_results) > 0:
+        result = result.merge(
+            m8_results[["barrio_key", "fecha", "is_anomaly_anr", "anr_ratio"]],
+            on=["barrio_key", "fecha"], how="left",
+        )
+    else:
+        result["is_anomaly_anr"] = np.nan
+        result["anr_ratio"] = np.nan
+
+    # Merge M9 (NMF)
+    if m9_results is not None and len(m9_results) > 0:
+        result = result.merge(
+            m9_results[["barrio_key", "fecha", "is_anomaly_nmf"]],
+            on=["barrio_key", "fecha"], how="left",
+        )
+    else:
+        result["is_anomaly_nmf"] = np.nan
+
+    # Merge M10 (Lecturas)
+    if m10_results is not None and len(m10_results) > 0:
+        result = result.merge(
+            m10_results[["barrio_key", "fecha", "is_anomaly_readings"]],
+            on=["barrio_key", "fecha"], how="left",
+        )
+    else:
+        result["is_anomaly_readings"] = np.nan
+
     # Rellenar NaN en columnas booleanas
     for col in ["is_anomaly_3sigma", "is_anomaly_iqr"]:
         result[col] = result[col].fillna(False).astype(bool)
 
     # Contar cuantos modelos detectan anomalia (ignorar NaN = modelo no ejecutado)
     model_cols = ["is_anomaly_m2", "is_anomaly_3sigma", "is_anomaly_iqr",
-                  "is_anomaly_chronos", "is_anomaly_prophet"]
+                  "is_anomaly_chronos", "is_anomaly_prophet", "is_anomaly_anr",
+                  "is_anomaly_nmf", "is_anomaly_readings"]
     available = [c for c in model_cols if c in result.columns]
 
     def _count_detecting(row):
@@ -389,6 +608,9 @@ def collect_results(m2_results: pd.DataFrame, m5_results: pd.DataFrame,
             "is_anomaly_iqr": "M5_IQR",
             "is_anomaly_chronos": "M6_Chronos",
             "is_anomaly_prophet": "M7_Prophet",
+            "is_anomaly_anr": "M8_ANR",
+            "is_anomaly_nmf": "M9_NMF",
+            "is_anomaly_readings": "M10_Lecturas",
         }
         for col in available:
             val = row.get(col)
@@ -434,6 +656,9 @@ def print_summary(results: pd.DataFrame):
         "is_anomaly_iqr": "M5 (IQR desv)",
         "is_anomaly_chronos": "M6 (Chronos)",
         "is_anomaly_prophet": "M7 (Prophet)",
+        "is_anomaly_anr": "M8 (ANR perdidas)",
+        "is_anomaly_nmf": "M9 (NMF nocturno)",
+        "is_anomaly_readings": "M10 (Lecturas indiv)",
     }
 
     print(f"\n  {'Modelo':<22}  {'Anomalias':>10}  {'% del total':>12}  {'Estado':>10}")
@@ -553,19 +778,31 @@ def main():
                         help="Saltar M6 Chronos (lento)")
     parser.add_argument("--skip-prophet", action="store_true",
                         help="Saltar M7 Prophet")
+    parser.add_argument("--skip-anr", action="store_true",
+                        help="Saltar M8 ANR (Agua No Registrada)")
+    parser.add_argument("--anr-threshold", type=float, default=2.0,
+                        help="M8 ANR ratio threshold (default: 2.0)")
+    parser.add_argument("--skip-nmf", action="store_true",
+                        help="Saltar M9 NMF (Nighttime Minimum Flow)")
+    parser.add_argument("--nmf-zscore", type=float, default=2.0,
+                        help="M9 NMF z-score threshold (default: 2.0)")
+    parser.add_argument("--skip-readings", action="store_true",
+                        help="Saltar M10 Lecturas individuales (lento, ~4M filas)")
     parser.add_argument("--output", type=str, default=None,
                         help="Guardar resultados en CSV")
-    # Tuning parameters
-    parser.add_argument("--contamination", type=float, default=0.05,
-                        help="M2 contamination rate (default: 0.05)")
-    parser.add_argument("--prophet-interval", type=float, default=0.97,
-                        help="Prophet interval width (default: 0.97)")
-    parser.add_argument("--prophet-changepoint", type=float, default=0.15,
-                        help="Prophet changepoint_prior_scale (default: 0.15)")
-    parser.add_argument("--chronos-sigma", type=float, default=2.5,
-                        help="Chronos threshold sigma (default: 2.5)")
-    parser.add_argument("--iqr-multiplier", type=float, default=2.0,
-                        help="IQR multiplier for fences (default: 2.0)")
+    # Tuning parameters (optimized via tune_models.py grid search)
+    parser.add_argument("--contamination", type=float, default=0.01,
+                        help="M2 contamination rate (default: 0.01, tuned)")
+    parser.add_argument("--prophet-interval", type=float, default=0.99,
+                        help="Prophet interval width (default: 0.99, tuned)")
+    parser.add_argument("--prophet-changepoint", type=float, default=0.30,
+                        help="Prophet changepoint_prior_scale (default: 0.30, tuned)")
+    parser.add_argument("--chronos-sigma", type=float, default=3.5,
+                        help="Chronos threshold sigma (default: 3.5, tuned)")
+    parser.add_argument("--iqr-multiplier", type=float, default=3.0,
+                        help="IQR multiplier for fences (default: 3.0, tuned)")
+    parser.add_argument("--min-deviation", type=float, default=0.10,
+                        help="M5 minimum practical deviation to flag (default: 0.10 = 10%%)")
     args = parser.parse_args()
 
     csv_path = Path(args.file)
@@ -582,7 +819,10 @@ def main():
     print(f"  Ext. data:       {'SI' if args.with_external else 'NO'}")
     print(f"  Modelos:         M2, M5" +
           ("" if args.skip_chronos else ", M6") +
-          ("" if args.skip_prophet else ", M7"))
+          ("" if args.skip_prophet else ", M7") +
+          ("" if args.skip_anr else ", M8") +
+          ("" if args.skip_nmf else ", M9") +
+          ("" if args.skip_readings else ", M10"))
     print(f"  M2 contamination: {args.contamination}")
     print(f"  M5 IQR mult:     {args.iqr_multiplier}")
     if not args.skip_chronos:
@@ -606,7 +846,8 @@ def main():
     m2_results = run_m2(df_all, external_df=external_df, uso_filter=args.uso,
                         contamination=args.contamination)
     m5_results = run_m5(df_all, uso_filter=args.uso,
-                        iqr_multiplier=args.iqr_multiplier)
+                        iqr_multiplier=args.iqr_multiplier,
+                        min_deviation=args.min_deviation)
 
     m6_results = pd.DataFrame()
     if not args.skip_chronos:
@@ -621,9 +862,25 @@ def main():
                             interval_width=args.prophet_interval,
                             changepoint_prior_scale=args.prophet_changepoint)
 
+    m8_results = pd.DataFrame()
+    if not args.skip_anr:
+        m8_results = run_m8(df_all, uso_filter=args.uso,
+                            anr_threshold=args.anr_threshold)
+
+    m9_results = pd.DataFrame()
+    if not args.skip_nmf:
+        m9_results = run_m9(df_all, uso_filter=args.uso,
+                            zscore_threshold=args.nmf_zscore)
+
+    m10_results = pd.DataFrame()
+    if not args.skip_readings:
+        m10_results = run_m10(df_all, uso_filter=args.uso,
+                              iqr_multiplier=args.iqr_multiplier)
+
     # Combinar
     print(f"\n  Combinando resultados...")
-    results = collect_results(m2_results, m5_results, m6_results, m7_results)
+    results = collect_results(m2_results, m5_results, m6_results, m7_results,
+                              m8_results, m9_results, m10_results)
 
     elapsed = time.time() - t_start
     print(f"  Tiempo total: {elapsed:.1f}s")

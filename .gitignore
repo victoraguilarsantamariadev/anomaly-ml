@@ -1,5 +1,4 @@
 models/
-data/
 output/
 __pycache__/
 *.pyc
@@ -10,3 +9,4 @@ venv/
 *.egg-info/
 dist/
 .pytest_cache/
+*:Zone.Identifier
