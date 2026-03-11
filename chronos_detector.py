@@ -26,12 +26,26 @@ from typing import Optional
 
 # Lazy import de torch y chronos para no fallar si no están instalados
 _pipeline = None
+_current_model = None
+
+# Modelos disponibles (de menor a mayor capacidad):
+#   small: 8M params, rapido (~1min/barrio) - bueno para pruebas
+#   base:  46M params, medio (~3min/barrio) - balance calidad/velocidad
+#   large: 200M params, lento (~8min/barrio) - maxima calidad
+CHRONOS_MODELS = {
+    "small": "amazon/chronos-t5-small",
+    "base": "amazon/chronos-t5-base",
+    "large": "amazon/chronos-t5-large",
+}
 
 
-def _get_pipeline():
+def _get_pipeline(model_size: str = "small"):
     """Carga el modelo Chronos una sola vez (singleton)."""
-    global _pipeline
-    if _pipeline is not None:
+    global _pipeline, _current_model
+
+    model_name = CHRONOS_MODELS.get(model_size, CHRONOS_MODELS["small"])
+
+    if _pipeline is not None and _current_model == model_name:
         return _pipeline
 
     try:
@@ -42,12 +56,13 @@ def _get_pipeline():
             "Chronos no instalado. Ejecuta: pip install chronos-forecasting torch"
         )
 
-    print("  Cargando modelo amazon/chronos-t5-small...")
+    print(f"  Cargando modelo {model_name}...")
     _pipeline = ChronosPipeline.from_pretrained(
-        "amazon/chronos-t5-small",
+        model_name,
         device_map="cpu",
         dtype=torch.float32,
     )
+    _current_model = model_name
     print("  Modelo cargado.")
     return _pipeline
 
@@ -57,6 +72,7 @@ def score_chronos(
     test_values: np.ndarray,
     threshold_sigma: float = 2.0,
     num_samples: int = 50,
+    model_size: str = "small",
 ) -> np.ndarray:
     """
     Detecta anomalías usando Chronos forecast probabilístico.
@@ -71,13 +87,14 @@ def score_chronos(
         test_values:     array con valores de test a evaluar
         threshold_sigma: número de desviaciones estándar para marcar anomalía
         num_samples:     muestras del forecast probabilístico (más = más preciso pero lento)
+        model_size:      "small" (8M), "base" (46M), o "large" (200M)
 
     Returns:
         Array booleano: True = anomalía detectada
     """
     import torch
 
-    pipeline = _get_pipeline()
+    pipeline = _get_pipeline(model_size)
     anomalies = np.zeros(len(test_values), dtype=bool)
 
     for i in range(len(test_values)):

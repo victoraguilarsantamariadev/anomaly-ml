@@ -38,7 +38,8 @@ def score_prophet(
     test_dates: pd.DatetimeIndex | np.ndarray,
     interval_width: float = 0.95,
     changepoint_prior_scale: float = 0.05,
-) -> np.ndarray:
+    return_residuals: bool = False,
+) -> np.ndarray | tuple:
     """
     Detecta anomalías usando Prophet forecast + intervalo de confianza.
 
@@ -54,9 +55,12 @@ def score_prophet(
         interval_width: ancho del intervalo de confianza (0.95 = 95%, 0.97 = 97%)
         changepoint_prior_scale: flexibilidad para detectar cambios de tendencia
                                  (0.05 = conservador, 0.15 = mas adaptativo)
+        return_residuals: si True, devuelve tambien residuos normalizados
 
     Returns:
         Array booleano: True = anomalía detectada
+        Si return_residuals=True: (anomalies, residuals) donde residuals es
+        (real - predicho) / ancho_intervalo. Valores > 1.0 o < -1.0 = fuera del CI.
     """
     from prophet import Prophet
 
@@ -87,6 +91,15 @@ def score_prophet(
         (test_values < forecast["yhat_lower"].values) |
         (test_values > forecast["yhat_upper"].values)
     )
+
+    if return_residuals:
+        # Residuo normalizado: (real - predicho) / ancho_intervalo
+        yhat = forecast["yhat"].values
+        interval_width_vals = forecast["yhat_upper"].values - forecast["yhat_lower"].values
+        interval_width_vals = np.where(interval_width_vals > 0, interval_width_vals, 1.0)
+        residuals = (test_values - yhat) / interval_width_vals
+        return anomalies.astype(bool), residuals
+
     return anomalies.astype(bool)
 
 

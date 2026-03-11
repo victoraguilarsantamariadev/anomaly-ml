@@ -80,15 +80,82 @@ def compute_night_day_ratios(df: pd.DataFrame) -> pd.DataFrame:
     return daily
 
 
+def _load_barrio_uso_profile(contadores_path: str = None) -> dict:
+    """
+    Calcula el % de contratos no-domesticos por barrio usando contadores-telelectura.
+
+    Barrios con alto % industrial/comercial/municipal tienen consumo nocturno
+    esperado (maquinaria, riego municipal, etc.) y no deben contar como anomalia.
+
+    Returns:
+        dict: {barrio: pct_non_domestic} donde 0.0 = todo domestico, 1.0 = todo industrial
+    """
+    if contadores_path is None:
+        contadores_path = "data/contadores-telelectura-instalados-solo-alicante_hackaton-dataart-contadores-telelectura-instalad.csv"
+
+    from pathlib import Path
+    if not Path(contadores_path).exists():
+        return {}
+
+    cont = pd.read_csv(contadores_path)
+
+    domestic_usos = {"DOMÉSTICO", "DOMESTICO", "COMUNIDAD PROPIETARIOS"}
+    cont["is_domestic"] = cont["USO"].isin(domestic_usos)
+
+    profile = cont.groupby("BARRIO").agg(
+        total=("USO", "size"),
+        domestic=("is_domestic", "sum"),
+    )
+    profile["pct_non_domestic"] = 1 - (profile["domestic"] / profile["total"])
+
+    return profile["pct_non_domestic"].to_dict()
+
+
+def _load_regenerada_ratio() -> dict:
+    """
+    Calcula ratio agua regenerada / potable por barrio.
+
+    El 83% de zonas verdes de Alicante se riegan con agua regenerada (843.500 m3/año).
+    Barrios con alto regenerada_ratio tienen riego municipal nocturno esperado,
+    por lo que su consumo nocturno alto NO indica fraude.
+
+    Returns:
+        dict: {barrio: regenerada_ratio}
+    """
+    regenerada_path = "data/_consumos_alicante_regenerada_barrio_mes-2024_-consumos_alicante_regenerada_barrio_mes-2024.csv.csv"
+
+    from pathlib import Path
+    if not Path(regenerada_path).exists():
+        return {}
+
+    reg = pd.read_csv(regenerada_path)
+    if "BARRIO" not in reg.columns or "CONSUMO_2024" not in reg.columns:
+        return {}
+
+    # Total anual regenerada por barrio
+    barrio_total = reg.groupby("BARRIO")["CONSUMO_2024"].sum()
+    # Normalizar: ratio vs mediana
+    median_reg = barrio_total.median()
+    if median_reg > 0:
+        ratios = barrio_total / median_reg
+    else:
+        ratios = barrio_total * 0
+
+    return ratios.to_dict()
+
+
 def detect_nmf_anomalies(daily: pd.DataFrame,
-                          zscore_threshold: float = 2.0) -> pd.DataFrame:
+                          zscore_threshold: float = 2.0,
+                          uso_filter: bool = True) -> pd.DataFrame:
     """
     Detecta sectores con consumo nocturno anomalo.
 
     Metodo: para cada sector, calcula media y std del ratio nocturno/diurno.
     Si el ratio medio del sector supera la media global + zscore_threshold * std → anomalia.
 
-    Tambien detecta dias concretos con picos nocturnos (ratio > media_sector + 2*std_sector).
+    Si uso_filter=True, ajusta el threshold para sectores en barrios con alto %
+    de contratos no-domesticos (industrial/comercial), ya que su consumo nocturno
+    es esperado y no anomalo.
     """
     # Estadisticas por sector
     sector_stats = daily.groupby("SECTOR").agg(
@@ -100,6 +167,10 @@ def detect_nmf_anomalies(daily: pd.DataFrame,
         n_days=("date", "count"),
     ).reset_index()
 
+    # Añadir barrio
+    mapping = get_mapped_sectors()
+    sector_stats["barrio"] = sector_stats["SECTOR"].map(mapping)
+
     # Z-score de cada sector respecto al grupo
     global_mean = sector_stats["avg_ratio"].mean()
     global_std = sector_stats["avg_ratio"].std()
@@ -109,11 +180,43 @@ def detect_nmf_anomalies(daily: pd.DataFrame,
         (sector_stats["avg_ratio"] - global_mean) / global_std,
         0,
     )
-    sector_stats["is_anomaly_nmf"] = sector_stats["zscore"] > zscore_threshold
 
-    # Añadir barrio
-    mapping = get_mapped_sectors()
-    sector_stats["barrio"] = sector_stats["SECTOR"].map(mapping)
+    # Ajustar threshold por uso + agua regenerada (riego municipal)
+    if uso_filter:
+        barrio_profile = _load_barrio_uso_profile()
+        regenerada_profile = _load_regenerada_ratio()
+
+        if barrio_profile or regenerada_profile:
+            adjusted_threshold = []
+            for _, row in sector_stats.iterrows():
+                barrio = row["barrio"]
+                bonus = 0.0
+
+                # Factor 1: % contratos no-domesticos
+                pct_nd = barrio_profile.get(barrio, 0.0) if (barrio_profile and pd.notna(barrio)) else 0.0
+                if pct_nd > 0.5:
+                    bonus += 2.0
+                elif pct_nd > 0.3:
+                    bonus += 1.0
+
+                # Factor 2: agua regenerada (riego municipal nocturno)
+                # Barrios con regenerada > 2x la mediana = riego municipal significativo
+                reg_ratio = regenerada_profile.get(barrio, 0.0) if (regenerada_profile and pd.notna(barrio)) else 0.0
+                if reg_ratio > 3.0:
+                    bonus += 1.5  # mucho riego municipal
+                elif reg_ratio > 1.5:
+                    bonus += 0.5  # algo de riego
+
+                adjusted_threshold.append(zscore_threshold + bonus)
+            sector_stats["effective_threshold"] = adjusted_threshold
+            sector_stats["is_anomaly_nmf"] = sector_stats["zscore"] > sector_stats["effective_threshold"]
+            n_adjusted = (sector_stats["effective_threshold"] > zscore_threshold).sum()
+            if n_adjusted > 0:
+                print(f"    NMF uso-filter: {n_adjusted} sectores con threshold ajustado (uso + regenerada)")
+        else:
+            sector_stats["is_anomaly_nmf"] = sector_stats["zscore"] > zscore_threshold
+    else:
+        sector_stats["is_anomaly_nmf"] = sector_stats["zscore"] > zscore_threshold
 
     return sector_stats.sort_values("avg_ratio", ascending=False)
 

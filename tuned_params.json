@@ -1,0 +1,8 @@
+{
+  "m2": {
+    "contamination": 0.03
+  },
+  "m5": {
+    "iqr_multiplier": 3.0
+  }
+}
