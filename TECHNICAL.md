@@ -328,7 +328,7 @@ Bins de 10% de probabilidad predicha. Para cada bin, calcula frecuencia observad
 
 ### 5.7 Validacion Independiente (independent_validation.py)
 
-Cinco validaciones EXTERNAS + Fisher's combined test. Todos los p-valores con permutation test (10,000 shuffles, mas potente que parametrico para n pequeño).
+Nueve validaciones EXTERNAS (A-I) + Fisher's combined test + AquaCare V4. Todos los p-valores con permutation test (10,000 shuffles, mas potente que parametrico para n pequeño).
 
 **A. Riesgo de infraestructura (edad contadores + % manual)**
 - **Datos:** `contadores-telelectura` (192K contadores con BARRIO, edad, tipo)
@@ -487,7 +487,7 @@ Ninguna usa `is_anomaly_*` ni `ensemble_score` → no hay auto-referencia.
 | delta | auc_full - auc_without |
 | verdict | ESSENTIAL / USEFUL / REDUNDANT |
 
-### report.html (85 KB, 10 secciones)
+### report.html (133 KB, 13 secciones)
 
 1. Resumen Ejecutivo (KPIs + Bootstrap CI)
 2. Metodologia (modelos + ensemble)
@@ -499,6 +499,19 @@ Ninguna usa `is_anomaly_*` ni `ensemble_score` → no hay auto-referencia.
 8. Calibracion Conformal (histogram + reliability diagram)
 9. Robustez (baselines + ablation + tests estadisticos)
 10. Top 10 Barrios por Riesgo
+11. Validacion Independiente (9 tests A-I + Fisher's combined)
+12. Out-of-sample 2025 (scatter con regresion)
+13. Null Permutation Test (histograma distribucion nula)
+
+### dashboard.py (7 paginas interactivas)
+
+1. KPIs Ejecutivos (alertas, impacto economico, top 10 barrios)
+2. Mapa de Alicante (GIS con barrios + sectores hidraulicos + infraestructura)
+3. Timeline por Barrio (consumo temporal + changepoints + ANR + SHAP)
+4. Validacion (consenso modelos + fraude real + lift curve)
+5. AquaCare (impacto social: poblacion mayor × anomalias)
+6. Los Modelos (14 modelos explicados: 6 activos, 8 descartados, ablation chart)
+7. Fiabilidad (OOS 2025, null permutation, bootstrap, 22 validaciones, BH correction)
 
 ---
 
