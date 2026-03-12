@@ -2,7 +2,7 @@
 
 Sistema de deteccion de anomalias en el consumo de agua para la ciudad de Alicante.
 
-**Objetivo:** Detectar barrios con consumo anomalo (fugas, fraude, averias) analizando 4.3M lecturas de 2020-2025 (6 anos) con 6 modelos de ML/estadistica (de 14 probados, 8 descartados por ablation study) combinados en un ensemble inteligente.
+**Objetivo:** Detectar barrios con consumo anómalo (fugas, fraude, averias) analizando 4.3M lecturas de 2020-2025 (6 anos) con 6 modelos de ML/estadistica (de 14 probados, 8 descartados por ablation study) combinados en un ensemble inteligente.
 
 ---
 
@@ -17,7 +17,7 @@ AMAEM tiene datos de consumo de agua de 42 barrios de Alicante, mes a mes, duran
 
 ### La solucion
 
-AquaGuard AI usa **6 "detectives" diferentes** (modelos) que analizan el consumo desde perspectivas distintas. Se probaron 14, pero un ablation study descarto 8 que no aportaban o restaban fiabilidad. Cuando varios de los 6 supervivientes coinciden en que algo es raro, la confianza sube. Es como pedir segunda opinion medica: si varios doctores independientes dicen que hay un problema, probablemente lo hay.
+AquaGuard AI usa **6 "detectives" diferentes** (modelos) que analizan el consumo desde perspectivas distintas. Se probaron 14, pero un ablation study descarto 8 que no aportaban o restaban fiabilidad. Cuando varios de los 6 supervivientes coinciden en que algo es raro, la confianza sube. Es como pedir segunda opinion medica: si varios doctores independientes dicen que hay un problema, probablemente lo haya.
 
 ### Los 6 modelos activos ("detectives")
 
