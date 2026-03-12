@@ -21,14 +21,14 @@ AquaGuard AI usa **6 "detectives" diferentes** (modelos) que analizan el consumo
 
 ### Los 6 modelos activos ("detectives")
 
-| # | Nombre | Que hace | En simple | Peso |
-|---|--------|----------|-----------|------|
-| M2 | IsolationForest | Compara cada barrio con todos los demas | "Este barrio se comporta raro comparado con sus vecinos" | ~32% |
-| M14 | VAE | Version probabilistica del autoencoder | El modelo MAS importante del sistema | ~28% |
-| M13 | Autoencoder | Red neuronal que comprime y reconstruye | "No logro reconstruir este dato → es anomalo" | ~17% |
-| M5b | IQR | Busca valores extremos con cuartiles | Robusto a datos raros | ~6% |
-| M8 | ANR | Agua No Registrada | "Entra mas agua de la que se factura" | ~3% |
-| M9 | NMF | Descompone patrones en componentes | "El patron de consumo no encaja" | ~3% |
+|  #  | Nombre          | Que hace                                  | En simple                                                 | Peso |
+|-----|-----------------|-------------------------------------------|-----------------------------------------------------------|------|
+| M2  | IsolationForest | Compara cada barrio con todos los demas   | "Este barrio se comporta raro comparado con sus vecinos"  | ~32% |
+| M14 | VAE             | Version probabilistica del autoencoder    | El modelo MAS importante del sistema                      | ~28% |
+| M13 | Autoencoder     | Red neuronal que comprime y reconstruye   | "No logro reconstruir este dato → es anomalo"             | ~17% |
+| M5b | IQR             | Busca valores extremos con cuartiles      | Robusto a datos raros                                     | ~6%  |
+| M8  | ANR             | Agua No Registrada                        | "Entra mas agua de la que se factura"                     | ~3%  |
+| M9  | NMF             | Descompone patrones en componentes        | "El patron de consumo no encaja"                          | ~3%  |
 
 **Modelos descartados (ablation study demostro que restaban fiabilidad):**
 - ~~M5a 3-sigma~~, ~~M6 Chronos (Amazon)~~, ~~M7 Prophet (Facebook)~~ — peso=0 en el ensemble
@@ -157,17 +157,17 @@ anomaly-ml/
 
 Los datos estan en `data/` y vienen de AMAEM:
 
-| Archivo | Que contiene |
-|---------|-------------|
-| `datos-hackathon-amaem.xlsx-set-de-datos-.csv` | Consumo mensual por barrio (2022-2024) |
-| `cambios-de-contador-solo-alicante_*.csv` | Cambios de contador (incluye fraude real) |
-| `contadores-telelectura-*.csv` | Contadores con telelectura instalados |
-| `_consumos_alicante_regenerada_*.csv` | Consumo de agua regenerada |
-| `padron_elderly_barrios_2025.csv` | Poblacion mayor por barrio |
-| `sectores_de_consumo.json` | 183 sectores hidraulicos (GIS) |
-| `entidades_de_poblacion.json` | Limites de barrios (GIS) |
-| `bocasriego_hidrantes.json` | Hidrantes y bocas de riego |
-| `tuberias*.json` | Red de tuberias |
+| Archivo                                           | Que contiene                              |
+|---------------------------------------------------|-------------------------------------------|
+| `datos-hackathon-amaem.xlsx-set-de-datos-.csv`    | Consumo mensual por barrio (2022-2024)    |
+| `cambios-de-contador-solo-alicante_*.csv`         | Cambios de contador (incluye fraude real) |
+| `contadores-telelectura-*.csv`                    | Contadores con telelectura instalados     |
+| `_consumos_alicante_regenerada_*.csv`             | Consumo de agua regenerada                |
+| `padron_elderly_barrios_2025.csv`                 | Poblacion mayor por barrio                |
+| `sectores_de_consumo.json`                        | 183 sectores hidraulicos (GIS)            |
+| `entidades_de_poblacion.json`                     | Limites de barrios (GIS)                  |
+| `bocasriego_hidrantes.json`                       | Hidrantes y bocas de riego                |
+| `tuberias*.json`                                  | Red de tuberias                           |
 
 ---
 
@@ -175,16 +175,17 @@ Los datos estan en `data/` y vienen de AMAEM:
 
 ### Metricas del sistema
 
-| Metrica | Valor |
-|---------|-------|
-| AUC-PR (full ensemble) | 0.893 |
-| Precision (stacking >= 0.5) | 0.543 |
-| Recall | 0.643 |
-| F1 | 0.589 |
-| ECE (calibracion) | 0.037 (EXCELENTE) |
-| Lift vs random | 4.6x |
-| Barrios analizados | 27 |
-| Modelos activos | 6 (de 14 probados) |
+| Metrica                       | Valor |
+|-------------------------------|-------|
+| AUC-PR (full ensemble)        | 0.893 |
+| Precision (stacking >= 0.5)   | 0.543 |
+| Recall                        | 0.643 |
+| F1                            | 0.589 |
+| ECE (calibracion)             | 0.037 (EXCELENTE)|
+|-------------------------------|-------|
+| Lift vs random                | 4.6x  |
+| Barrios analizados            | 27    |
+| Modelos activos               | 6 (de 14 probados)|
 
 ### Distribucion de alertas
 
@@ -195,13 +196,13 @@ Los datos estan en `data/` y vienen de AMAEM:
 
 ### Modelos mas importantes (ablation study, cargado dinamicamente de ablation_results.csv)
 
-| Modelo | Delta AUC-PR | Veredicto |
-|--------|-------------|-----------|
-| M2 IsoForest | +0.086 | ESENCIAL |
-| M14 VAE | +0.078 | ESENCIAL |
-| M13 Autoencoder | +0.049 | ESENCIAL |
-| M5b IQR | +0.024 | UTIL |
-| Resto (5 modelos) | <=0.003 | REDUNDANTE |
+| Modelo           | Delta AUC-PR | Veredicto  |
+|------------------|--------------|------------|
+| M2 IsoForest     | +0.086       | ESENCIAL   |
+| M14 VAE          | +0.078       | ESENCIAL   |
+| M13 Autoencoder  | +0.049       | ESENCIAL   |
+| M5b IQR          | +0.024       | UTIL       |
+| Resto (5 modelos)| <=0.003      | REDUNDANTE |
 
 Nota: Los pesos se cargan automaticamente desde `ablation_results.csv` en cada ejecucion. Los numeros de arriba corresponden a la ultima ejecucion.
 
