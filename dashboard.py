@@ -95,7 +95,8 @@ st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "Navegacion",
     ["📊 KPIs Ejecutivos", "🗺️ Mapa de Alicante", "📈 Timeline por Barrio",
-     "🔬 Validacion", "🤝 AquaCare", "🤖 Los Modelos", "✅ Fiabilidad"],
+     "🔬 Validacion", "🤝 AquaCare", "🤖 Los Modelos", "✅ Fiabilidad",
+     "🛰️ Datos Externos"],
 )
 
 df = load_results()
@@ -752,9 +753,19 @@ elif page == "🤝 AquaCare":
 elif page == "🤖 Los Modelos":
     st.title("🤖 Los 14 Modelos: Por que solo 6 sobreviven")
     st.markdown("""
-    Probamos **14 detectores** diferentes. Un *ablation study* midio cuanto aporta
-    cada uno al resultado final. **8 restaban fiabilidad** → eliminados.
-    Solo quedan los 6 que mejoran el resultado.
+    > **¿Que estas viendo?** Imagina que contratas a 14 detectives para vigilar el agua de Alicante.
+    > Cada uno investiga a su manera: uno compara barrios, otro usa redes neuronales, otro mide
+    > el agua que se pierde por la noche...
+    >
+    > Despues de probar a los 14, descubrimos que **8 de ellos empeoraban el resultado** — daban
+    > tantas falsas alarmas que confundian al equipo. Los despedimos.
+    >
+    > **Solo los 6 mejores se quedan.** Cada uno aporta algo unico, y juntos son mucho mejores
+    > que cualquiera solo. Es como un jurado: si 5 de 6 dicen "culpable", es mas fiable que
+    > si lo dice uno solo.
+    >
+    > El grafico de barras muestra **cuanto mejora** (verde) o empeora (rojo) el resultado
+    > al anadir cada modelo. Solo nos quedamos con los verdes.
     """)
 
     # Model catalog: all 14 models with descriptions
@@ -843,8 +854,19 @@ elif page == "🤖 Los Modelos":
 elif page == "✅ Fiabilidad":
     st.title("✅ Como sabemos que NO nos lo inventamos")
     st.markdown("""
-    Cada grafico de abajo es una prueba independiente de que las detecciones son reales.
-    No basta con decir "la IA dice que hay anomalia" — hay que **demostrarlo**.
+    > **¿Que estas viendo?** Cualquiera puede decir "la IA ha detectado un problema".
+    > La pregunta importante es: **¿como sabemos que es verdad y no un error?**
+    >
+    > Aqui mostramos **22 pruebas independientes**. Es como en un juicio: no basta con
+    > un testigo — necesitas pruebas fisicas, testimonios, y que todo encaje.
+    >
+    > Las pruebas mas fuertes:
+    > - **Contadores reales**: Comparamos con 4.3 millones de lecturas reales. Coincidimos el 79%.
+    > - **Prediccion del futuro**: Entrenamos con datos hasta 2024 y predijimos 2025 correctamente.
+    > - **Tres fuentes diferentes**: Flujo nocturno + balance hidraulico + contadores. Todas dicen lo mismo.
+    > - **1000 pruebas aleatorias**: Barajamos todo al azar 1000 veces. Ninguna fue tan buena como la real.
+    >
+    > **Si fuera casualidad**, la probabilidad seria de 1 entre 500. No es casualidad.
     """)
 
     # ── KPI Cards ──
@@ -1061,3 +1083,327 @@ elif page == "✅ Fiabilidad":
             st.info(f"**{n_survived}/{len(bh)}** validaciones sobreviven la correccion. Las que sobreviven son ROBUSTAS.")
     except Exception as e:
         st.warning(f"BH correction no disponible: {e}")
+
+# ═══════════════════════════════════════════════════════════════
+# PAGE 8: DATOS EXTERNOS CREATIVOS
+# ═══════════════════════════════════════════════════════════════
+elif page == "🛰️ Datos Externos":
+    st.title("🛰️ Datos Externos — Lo que AMAEM no ha visto en 125 anos")
+
+    st.markdown("""
+    > **¿Que estas viendo?** AMAEM solo tiene datos de sus contadores y tuberias.
+    > Nosotros hemos cruzado esos datos con **4 fuentes publicas** que ellos nunca han usado:
+    >
+    > 1. **Imagenes de satelite** (ESA) — vemos desde el espacio que barrios estan verdes en plena sequia
+    > 2. **Viviendas turisticas** (Generalitat Valenciana) — sabemos donde hay pisos de vacaciones que gastan agua a rafagas
+    > 3. **Renta por barrio** (INE) — distinguimos si un fraude es por necesidad o por codicia
+    > 4. **Edad de edificios** (Catastro) — sabemos si las tuberias internas son de 1960 o de 2020
+    >
+    > **¿Por que importa?** Todos los equipos del hackathon tienen los mismos datos de AMAEM.
+    > La diferencia esta en lo que traemos de fuera. Estos datos permiten **explicar** por que
+    > hay anomalias, no solo detectarlas.
+    """)
+
+    try:
+        from external_data import load_creative_external_data
+        df_creative = load_creative_external_data()
+
+        # Merge con resultados para cruzar anomalias con datos creativos
+        barrio_scores = df.groupby(df["barrio_key"].str.split("__").str[0]).agg(
+            mean_score=("ensemble_score", "mean"),
+            n_alertas=("n_models_detecting", "sum"),
+        ).reset_index()
+        barrio_scores.columns = ["barrio", "mean_score", "n_alertas"]
+        df_merged = df_creative.merge(barrio_scores, on="barrio", how="left").fillna(0)
+
+        # ── 1. NDVI SATELITE ──
+        st.header("🌿 Satelite: Quien riega en plena sequia?")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado imagenes de un **satelite de la Agencia Espacial Europea**
+        > (Sentinel-2) que pasa sobre Alicante cada 5 dias y hace fotos con 10 metros de resolucion.
+        >
+        > De esas fotos calculamos el **NDVI**: un numero que dice lo verde que esta cada zona.
+        > - **Marron** (NDVI ~0) = suelo seco, asfalto, edificios
+        > - **Amarillo** (NDVI ~0.1) = algo de hierba seca
+        > - **Verde claro** (NDVI ~0.2) = cesped, jardines regados
+        > - **Verde oscuro** (NDVI ~0.4+) = arbolado denso, parques bien regados
+        >
+        > **La pregunta clave:** Si un barrio esta MUY verde en agosto (plena sequia)
+        > pero su consumo facturado de agua es BAJO... **¿de donde sale el agua para regar?**
+        > Puede ser un pozo ilegal, un enganche directo a la red, o un contador manipulado.
+        """)
+
+        # Mostrar imagen de satelite real
+        comparison_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_comparison.png")
+        if os.path.exists(comparison_img):
+            st.image(comparison_img, caption="Imagenes REALES de Sentinel-2 (ESA). Izquierda: verano 2024. Derecha: invierno 2024. Las zonas que se mantienen verdes en verano son sospechosas.", use_container_width=True)
+
+        summer_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_summer_2024_map.png")
+        winter_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_winter_2024_map.png")
+        if os.path.exists(summer_img) and os.path.exists(winter_img):
+            col_s, col_w = st.columns(2)
+            with col_s:
+                st.image(summer_img, caption="Verano 2024 — ¿Quien esta verde en plena sequia?")
+            with col_w:
+                st.image(winter_img, caption="Invierno 2024 — Todo deberia estar mas verde")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_ndvi = px.bar(
+                df_merged.sort_values("ndvi_summer", ascending=False).head(15),
+                x="barrio", y="ndvi_summer",
+                color="mean_score",
+                color_continuous_scale="RdYlGn_r",
+                title="Top 15 barrios mas verdes en verano",
+                labels={"ndvi_summer": "NDVI Verano", "barrio": "Barrio", "mean_score": "Score anomalia"},
+            )
+            fig_ndvi.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_ndvi, use_container_width=True)
+
+        with col2:
+            fig_ndvi_scatter = px.scatter(
+                df_merged.dropna(subset=["ndvi_summer", "mean_score"]),
+                x="ndvi_summer", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="renta_nivel" if "renta_nivel" in df_merged.columns else None,
+                title="Verdor vs Anomalias: quien riega SIN facturar?",
+                labels={"ndvi_summer": "NDVI Verano (verdor)", "mean_score": "Score Anomalia"},
+            )
+            fig_ndvi_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_ndvi_scatter, use_container_width=True)
+
+        st.info("**Lectura rapida:** Los barrios arriba-derecha (verdes + anomalos) son los mas sospechosos "
+                "de riego con agua no facturada. Si un barrio esta verde en agosto sin facturar mucho agua, "
+                "hay que investigar.")
+
+        st.divider()
+
+        # ── 2. VIVIENDAS TURISTICAS ──
+        st.header("🏠 Viviendas Turisticas: Turismo o anomalia real?")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado el **registro oficial de viviendas turisticas**
+        > de la Generalitat Valenciana. Son los pisos de vacaciones tipo Airbnb, pero con
+        > datos del gobierno (no de una web privada).
+        >
+        > **¿Por que importa?** Un piso turistico gasta agua de forma MUY rara: esta vacio
+        > 3 semanas (0 litros), luego llegan turistas y gastan 500 litros en 4 dias, luego
+        > vuelve a 0. Eso PARECE una anomalia, pero **no es fraude ni fuga — es turismo**.
+        >
+        > Si sabemos que barrios tienen muchos pisos turisticos, podemos decir: "la anomalia
+        > en el centro es por turismo, no por fraude". Eso ahorra inspecciones inutiles.
+        >
+        > **Dato real:** Alicante tiene **3,334 viviendas turisticas** registradas con
+        > **14,656 plazas**. El CP 03002 (centro) tiene 781, el mas turistico.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_airbnb = px.bar(
+                df_merged.sort_values("airbnb_per_1000", ascending=False).head(15),
+                x="barrio", y="airbnb_per_1000",
+                color="mean_score",
+                color_continuous_scale="Reds",
+                title="Top 15 barrios con mas presion turistica",
+                labels={"airbnb_per_1000": "Airbnb por 1000 hab.", "barrio": "Barrio"},
+            )
+            fig_airbnb.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_airbnb, use_container_width=True)
+
+        with col2:
+            fig_airbnb_scatter = px.scatter(
+                df_merged.dropna(subset=["airbnb_per_1000", "mean_score"]),
+                x="airbnb_per_1000", y="mean_score",
+                text="barrio", size="n_alertas",
+                title="Presion turistica vs Anomalias",
+                labels={"airbnb_per_1000": "Airbnb/1000 hab.", "mean_score": "Score Anomalia"},
+            )
+            fig_airbnb_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_airbnb_scatter, use_container_width=True)
+
+        st.info("**Lectura rapida:** Los barrios con MUCHOS Airbnb (derecha) pero anomalias BAJAS (abajo) "
+                "son turisticos pero no problematicos. Los que tienen anomalias ALTAS sin muchos Airbnb "
+                "tienen problemas REALES que no se explican por turismo.")
+
+        st.divider()
+
+        # ── 3. RENTA ──
+        st.header("💰 Renta: Fraude por necesidad o por codicia?")
+        st.markdown("""
+        > **¿Que es esto?** Datos REALES del **Instituto Nacional de Estadistica (INE)** sobre
+        > cuanto dinero gana la gente en cada zona de Alicante. Dato oficial de 2023.
+        >
+        > **¿Por que importa?** No todo el fraude de agua es igual:
+        >
+        > - **Barrio pobre + anomalia** = puede ser una familia que NO PUEDE PAGAR el agua
+        >   y manipula el contador por necesidad. La solucion correcta: **ayuda social**,
+        >   tarifas bonificadas, revision gratuita de instalaciones.
+        >
+        > - **Barrio rico + anomalia** = puede ser un chalet con piscina y jardin que manipula
+        >   el contador para pagar menos. La solucion correcta: **inspeccion y sancion**.
+        >
+        > Esto permite al ayuntamiento **no perseguir a todos por igual**. Es justicia social
+        > aplicada a la gestion del agua.
+        >
+        > **Dato real:** El distrito 01 de Alicante tiene renta media de 20,097 EUR/persona.
+        > El distrito 05 tiene 10,102 EUR. La diferencia es el doble.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            renta_colors = {"muy_baja": "#d32f2f", "baja": "#f57c00", "media": "#fbc02d",
+                            "media_alta": "#7cb342", "alta": "#2e7d32"}
+            fig_renta = px.bar(
+                df_merged.sort_values("renta_media"),
+                x="barrio", y="renta_media",
+                color="renta_nivel",
+                color_discrete_map=renta_colors,
+                title="Renta media por barrio (EUR/persona/ano)",
+                labels={"renta_media": "Renta media (EUR)", "barrio": "Barrio", "renta_nivel": "Nivel"},
+            )
+            fig_renta.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_renta, use_container_width=True)
+
+        with col2:
+            fig_renta_scatter = px.scatter(
+                df_merged.dropna(subset=["renta_media", "mean_score"]),
+                x="renta_media", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="renta_nivel",
+                color_discrete_map=renta_colors,
+                title="Renta vs Anomalias: necesidad o codicia?",
+                labels={"renta_media": "Renta media (EUR)", "mean_score": "Score Anomalia"},
+            )
+            fig_renta_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_renta_scatter, use_container_width=True)
+
+        # Tabla resumen
+        st.subheader("Barrios anomalos por tipo de intervencion")
+        anomalos = df_merged[df_merged["mean_score"] > 0.15].copy()
+        if len(anomalos) > 0:
+            anomalos["intervencion"] = anomalos["renta_nivel"].map({
+                "muy_baja": "🟢 Ayuda social + revision gratuita",
+                "baja": "🟡 Ayuda social + revision",
+                "media": "🟠 Inspeccion estandar",
+                "media_alta": "🔴 Inspeccion prioritaria",
+                "alta": "🔴 Inspeccion + posible sancion",
+            })
+            st.dataframe(
+                anomalos[["barrio", "renta_media", "renta_nivel", "mean_score", "intervencion"]]
+                .sort_values("mean_score", ascending=False),
+                use_container_width=True,
+            )
+        else:
+            st.info("No hay barrios con score > 0.15 para mostrar intervenciones.")
+
+        st.divider()
+
+        # ── 4. CATASTRO — EDAD DE EDIFICIOS ──
+        st.header("🏗️ Catastro: Edificios viejos = tuberias viejas")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado datos del **Catastro** (el registro oficial
+        > de todos los edificios de Espana) para saber **en que ano se construyo cada edificio**
+        > del centro de Alicante. Tenemos datos reales de **1,688 edificios**.
+        >
+        > **¿Por que importa?** La empresa de aguas (AMAEM) conoce la edad de SUS tuberias
+        > (las de la calle). Pero NO conoce la edad de las tuberias **dentro de los edificios**
+        > — eso es responsabilidad del propietario.
+        >
+        > Un edificio de 1960 tiene tuberias de plomo o fibrocemento de 1960 (65 anos).
+        > Uno de 2020 tiene PVC moderno. Si un barrio con edificios VIEJOS tiene anomalias,
+        > probablemente son **fugas por tuberias deterioradas**. Si tiene edificios NUEVOS
+        > y anomalias, es mas probable que sea **fraude** (las tuberias no deberian fallar).
+        >
+        > **Dato real:** La mediana de construccion en el centro de Alicante es **1970**.
+        > Eso son tuberias de 55 anos de media.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            risk_colors = {"critico": "#d32f2f", "alto": "#f57c00", "medio": "#fbc02d", "bajo": "#4caf50"}
+            fig_age = px.bar(
+                df_merged.sort_values("edad_media", ascending=False).head(15),
+                x="barrio", y="edad_media",
+                color="riesgo_infraestructura",
+                color_discrete_map=risk_colors,
+                title="Top 15 barrios con edificios mas viejos",
+                labels={"edad_media": "Edad media (anos)", "barrio": "Barrio",
+                        "riesgo_infraestructura": "Riesgo"},
+            )
+            fig_age.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_age, use_container_width=True)
+
+        with col2:
+            fig_age_scatter = px.scatter(
+                df_merged.dropna(subset=["edad_media", "mean_score"]),
+                x="edad_media", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="riesgo_infraestructura",
+                color_discrete_map=risk_colors,
+                title="Edad de edificios vs Anomalias: fuga o fraude?",
+                labels={"edad_media": "Edad media edificios (anos)", "mean_score": "Score Anomalia"},
+            )
+            fig_age_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_age_scatter, use_container_width=True)
+
+        st.info("**Lectura rapida:** Barrios arriba-derecha (viejos + anomalos) probablemente "
+                "tienen **fugas por tuberias deterioradas**. Barrios arriba-izquierda "
+                "(nuevos + anomalos) probablemente tienen **fraude o manipulacion**.")
+
+        st.divider()
+
+        # ── RESUMEN: INDICE COMBINADO ──
+        st.header("🎯 Indice Combinado: donde actuar primero?")
+        st.markdown("""
+        Combinamos las 4 fuentes externas con nuestras anomalias para crear un
+        **indice de prioridad de actuacion** que tiene en cuenta verdor sospechoso,
+        presion turistica, vulnerabilidad economica y edad de la infraestructura.
+        """)
+
+        if "green_wealth_index" in df_merged.columns and "tourist_infra_risk" in df_merged.columns:
+            # Indice combinado
+            df_merged["priority_index"] = (
+                df_merged["mean_score"] * 0.4 +
+                df_merged["green_wealth_index"].fillna(0) * 0.2 +
+                df_merged["tourist_infra_risk"].fillna(0) * 0.1 +
+                (1 - df_merged["renta_media"].fillna(df_merged["renta_media"].median()) / df_merged["renta_media"].max()) * 0.15 +
+                df_merged["edad_media"].fillna(0) / 100 * 0.15
+            )
+
+            top_priority = df_merged.nlargest(10, "priority_index")
+            fig_priority = px.bar(
+                top_priority,
+                x="barrio", y="priority_index",
+                color="riesgo_infraestructura" if "riesgo_infraestructura" in top_priority.columns else None,
+                color_discrete_map=risk_colors if "riesgo_infraestructura" in top_priority.columns else None,
+                title="Top 10 barrios por indice de prioridad combinado",
+                labels={"priority_index": "Indice de prioridad", "barrio": "Barrio"},
+            )
+            fig_priority.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_priority, use_container_width=True)
+
+            st.markdown("""
+            **Como se calcula el indice:**
+            - 40% Score de anomalia (nuestros 6 modelos)
+            - 20% Verdor sospechoso (NDVI satelite x renta = piscinas/jardines no facturados)
+            - 15% Vulnerabilidad economica (renta baja = priorizar ayuda)
+            - 15% Edad de infraestructura (edificios viejos = fugas probables)
+            - 10% Riesgo turistico-infraestructural (muchos Airbnb en edificios viejos)
+            """)
+
+        st.divider()
+        st.subheader("📋 Fuentes de datos utilizadas")
+        sources_data = [
+            {"Fuente": "Sentinel-2 (ESA)", "Tipo": "Satelite", "Dato": "Indice NDVI (vegetacion)",
+             "Coste": "Gratis", "Actualizacion": "Cada 5 dias"},
+            {"Fuente": "Inside Airbnb", "Tipo": "Open Data", "Dato": "Densidad pisos turisticos",
+             "Coste": "Gratis", "Actualizacion": "Trimestral"},
+            {"Fuente": "INE Atlas Renta", "Tipo": "Estadistica publica", "Dato": "Renta media por seccion censal",
+             "Coste": "Gratis", "Actualizacion": "Anual"},
+            {"Fuente": "Catastro (DGC)", "Tipo": "Registro publico", "Dato": "Ano construccion edificios",
+             "Coste": "Gratis", "Actualizacion": "Semestral"},
+        ]
+        st.dataframe(pd.DataFrame(sources_data), use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error cargando datos creativos: {e}")
+        st.info("Ejecuta primero el pipeline para generar los datos.")
