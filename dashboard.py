@@ -152,6 +152,12 @@ if page == "📊 KPIs Ejecutivos":
     # Economic impact
     st.markdown("---")
     st.subheader("💰 Impacto Economico Estimado")
+    st.markdown("""
+    > **¿Que significan estos numeros?** Sumamos toda el agua que se consume en barrios
+    > con alertas rojas o naranjas. Si parte de esa agua se esta perdiendo por fugas o fraude,
+    > tiene un coste. Estimamos que **el 30%** de las anomalias detectadas son perdidas reales
+    > (el resto pueden ser errores de medicion o patrones explicables).
+    """)
 
     agua_riesgo_litros = df[df["alert_color"].isin(["ROJO", "NARANJA"])]["consumo_litros"].sum()
     agua_riesgo_m3 = agua_riesgo_litros / 1000
@@ -165,6 +171,20 @@ if page == "📊 KPIs Ejecutivos":
     # Validation metrics
     st.markdown("---")
     st.subheader("🎯 Metricas de Validacion")
+    st.markdown("""
+    > **¿Que significan estos numeros?** Son las "notas del examen" de nuestro sistema:
+    >
+    > - **Precision** = De todas las alertas que damos, ¿cuantas son problemas reales?
+    >   *Ejemplo: si es 0.46, significa que de cada 10 alertas, entre 4 y 5 son reales.*
+    > - **Recall** = De todos los problemas reales que existen, ¿cuantos detectamos?
+    >   *Ejemplo: si es 0.39, detectamos casi 4 de cada 10 problemas reales.*
+    > - **F1** = La nota media entre Precision y Recall. Mas alto = mejor equilibrio.
+    > - **AUC-PR** = Nota global del sistema (de 0 a 1). Un 0.70 es bueno para este tipo de problema.
+    >
+    > **¿Por que no son mas altos?** Porque detectar fraude de agua es MUY dificil — no hay
+    > un dataset perfecto de "aqui hay fraude, aqui no". Usamos pseudo-etiquetas construidas
+    > con datos independientes (cambios de contador + infraestructura), que son conservadoras.
+    """)
     if "pseudo_label" in df.columns and "stacking_score" in df.columns:
         from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, average_precision_score
         y_true = df["pseudo_label"].values
@@ -176,9 +196,21 @@ if page == "📊 KPIs Ejecutivos":
         col3.metric("F1", f"{f1_score(y_true, n_models_pred, zero_division=0):.3f}")
         col4.metric("AUC-PR (Stacking)", f"{average_precision_score(y_true, df['stacking_score'].fillna(0)):.3f}")
 
-    # Top 5 barrios
+    # Top 10 barrios
     st.markdown("---")
     st.subheader("🏘️ Top 10 Barrios con Mayor Riesgo")
+    st.markdown("""
+    > **¿Que es esta tabla?** Los 10 barrios donde nuestro sistema detecta MAS anomalias.
+    >
+    > - **mean_score**: Puntuacion de 0 a 1. Mas alto = mas sospechoso.
+    > - **n_alertas**: Cuantos meses tienen 2 o mas modelos diciendo "algo raro pasa".
+    > - **consumo_m3**: Total de agua consumida (en metros cubicos). Barrios grandes gastan mas.
+    > - **driver_principal**: La razon principal que explica la anomalia. Ejemplo:
+    >   - `+flag_m2` = "IsolationForest lo detecto" (se comporta distinto a los demas)
+    >   - `+deviation_from_group_trend` = "su consumo se desvia mucho del grupo"
+    >   - `+flag_anr` = "mucha agua no registrada (perdidas fisicas)"
+    >   - `+flag_iqr` = "valores fuera del rango estadistico normal"
+    """)
     top = (
         df.groupby("barrio_key")
         .agg(
@@ -332,7 +364,16 @@ elif page == "🗺️ Mapa de Alicante":
                         "weight": 0.5,
                         "fillOpacity": 0.3 if s > 0 else 0,
                     },
-                    popup=folium.Popup(f"<b>Sector: {sector_name}</b><br>Score: {score:.3f}", max_width=200),
+                    popup=folium.Popup(
+                        f"<b>{sector_name}</b><br>"
+                        f"<i>Sector hidraulico</i><br>"
+                        + (f"Barrio: {barrio_name}<br>"
+                           f"Ensemble Score: <b>{score:.3f}</b><br>"
+                           f"Alertas: {int(scores['n_red'])} rojas, {int(scores['n_orange'])} naranja<br>"
+                           f"Consumo: {scores['consumo_total']/1000:,.0f} m3"
+                           if scores else "Sin datos de anomalia"),
+                        max_width=280,
+                    ),
                 ).add_to(m)
 
         # Helper to get centroid from any geometry
@@ -1196,33 +1237,44 @@ elif page == "🛰️ Datos Externos":
         > **14,656 plazas**. El CP 03002 (centro) tiene 781, el mas turistico.
         """)
 
+        # Cargar datos reales de viviendas turisticas
+        from external_data import load_viviendas_turisticas
+        df_vt = load_viviendas_turisticas()
+
         col1, col2 = st.columns(2)
         with col1:
-            fig_airbnb = px.bar(
-                df_merged.sort_values("airbnb_per_1000", ascending=False).head(15),
-                x="barrio", y="airbnb_per_1000",
-                color="mean_score",
+            fig_vt = px.bar(
+                df_vt.sort_values("n_viviendas", ascending=False).head(15),
+                x="barrio_cp", y="n_viviendas",
+                color="plazas_totales",
                 color_continuous_scale="Reds",
-                title="Top 15 barrios con mas presion turistica",
-                labels={"airbnb_per_1000": "Airbnb por 1000 hab.", "barrio": "Barrio"},
+                title="Viviendas turisticas por codigo postal (datos oficiales)",
+                labels={"n_viviendas": "N viviendas turisticas", "barrio_cp": "Codigo Postal",
+                        "plazas_totales": "Plazas"},
             )
-            fig_airbnb.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig_airbnb, use_container_width=True)
+            fig_vt.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_vt, use_container_width=True)
 
         with col2:
-            fig_airbnb_scatter = px.scatter(
-                df_merged.dropna(subset=["airbnb_per_1000", "mean_score"]),
-                x="airbnb_per_1000", y="mean_score",
-                text="barrio", size="n_alertas",
-                title="Presion turistica vs Anomalias",
-                labels={"airbnb_per_1000": "Airbnb/1000 hab.", "mean_score": "Score Anomalia"},
+            fig_vt_pie = px.pie(
+                df_vt.nlargest(8, "n_viviendas"),
+                values="n_viviendas", names="barrio_cp",
+                title="Distribucion de pisos turisticos por zona",
             )
-            fig_airbnb_scatter.update_traces(textposition="top center", textfont_size=8)
-            st.plotly_chart(fig_airbnb_scatter, use_container_width=True)
+            st.plotly_chart(fig_vt_pie, use_container_width=True)
 
-        st.info("**Lectura rapida:** Los barrios con MUCHOS Airbnb (derecha) pero anomalias BAJAS (abajo) "
-                "son turisticos pero no problematicos. Los que tienen anomalias ALTAS sin muchos Airbnb "
-                "tienen problemas REALES que no se explican por turismo.")
+        # KPIs
+        total_vt = df_vt["n_viviendas"].sum()
+        total_plazas = df_vt["plazas_totales"].sum()
+        top_cp = df_vt.nlargest(1, "n_viviendas").iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total viviendas turisticas", f"{total_vt:,}")
+        c2.metric("Plazas totales", f"{total_plazas:,.0f}")
+        c3.metric("CP mas turistico", f"{top_cp['barrio_cp']} ({int(top_cp['n_viviendas'])} viv.)")
+
+        st.info("**Lectura rapida:** El CP 03002 (centro historico) concentra la mayor presion turistica. "
+                "Cualquier anomalia de agua en esa zona puede ser simplemente turismo, no fraude. "
+                "Los barrios SIN pisos turisticos pero CON anomalias son los que hay que investigar.")
 
         st.divider()
 
@@ -1359,14 +1411,14 @@ elif page == "🛰️ Datos Externos":
         presion turistica, vulnerabilidad economica y edad de la infraestructura.
         """)
 
-        if "green_wealth_index" in df_merged.columns and "tourist_infra_risk" in df_merged.columns:
+        if "green_wealth_index" in df_merged.columns:
             # Indice combinado
+            renta_max = df_merged["renta_media"].max() if "renta_media" in df_merged.columns else 1
             df_merged["priority_index"] = (
-                df_merged["mean_score"] * 0.4 +
-                df_merged["green_wealth_index"].fillna(0) * 0.2 +
-                df_merged["tourist_infra_risk"].fillna(0) * 0.1 +
-                (1 - df_merged["renta_media"].fillna(df_merged["renta_media"].median()) / df_merged["renta_media"].max()) * 0.15 +
-                df_merged["edad_media"].fillna(0) / 100 * 0.15
+                df_merged["mean_score"] * 0.40 +
+                df_merged["green_wealth_index"].fillna(0) * 0.25 +
+                (1 - df_merged["renta_media"].fillna(renta_max / 2) / renta_max) * 0.15 if "renta_media" in df_merged.columns else 0 +
+                df_merged["edad_media"].fillna(0) / 100 * 0.20
             )
 
             top_priority = df_merged.nlargest(10, "priority_index")
@@ -1383,11 +1435,10 @@ elif page == "🛰️ Datos Externos":
 
             st.markdown("""
             **Como se calcula el indice:**
-            - 40% Score de anomalia (nuestros 6 modelos)
-            - 20% Verdor sospechoso (NDVI satelite x renta = piscinas/jardines no facturados)
-            - 15% Vulnerabilidad economica (renta baja = priorizar ayuda)
-            - 15% Edad de infraestructura (edificios viejos = fugas probables)
-            - 10% Riesgo turistico-infraestructural (muchos Airbnb en edificios viejos)
+            - 40% Score de anomalia (nuestros 6 modelos de IA)
+            - 25% Verdor sospechoso (NDVI satelite x renta = jardines sin facturar?)
+            - 20% Edad de infraestructura (edificios viejos = fugas probables)
+            - 15% Vulnerabilidad economica (renta baja = priorizar ayuda social)
             """)
 
         st.divider()
@@ -1395,8 +1446,8 @@ elif page == "🛰️ Datos Externos":
         sources_data = [
             {"Fuente": "Sentinel-2 (ESA)", "Tipo": "Satelite", "Dato": "Indice NDVI (vegetacion)",
              "Coste": "Gratis", "Actualizacion": "Cada 5 dias"},
-            {"Fuente": "Inside Airbnb", "Tipo": "Open Data", "Dato": "Densidad pisos turisticos",
-             "Coste": "Gratis", "Actualizacion": "Trimestral"},
+            {"Fuente": "Generalitat Valenciana", "Tipo": "Registro oficial", "Dato": "3,334 viviendas turisticas con CP y plazas",
+             "Coste": "Gratis", "Actualizacion": "Diaria"},
             {"Fuente": "INE Atlas Renta", "Tipo": "Estadistica publica", "Dato": "Renta media por seccion censal",
              "Coste": "Gratis", "Actualizacion": "Anual"},
             {"Fuente": "Catastro (DGC)", "Tipo": "Registro publico", "Dato": "Ano construccion edificios",
