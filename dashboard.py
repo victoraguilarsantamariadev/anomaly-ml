@@ -432,12 +432,18 @@ elif page == "📈 Timeline por Barrio":
     > **¿Que estas viendo?** La evolucion mes a mes de un barrio concreto.
     > Selecciona un barrio del desplegable para ver su historial completo.
     >
-    > - **Linea azul**: Consumo real de agua (m3/mes)
-    > - **❌ Marcas rojas**: Meses donde 2 o mas modelos detectan anomalia
-    > - **Lineas naranjas punteadas**: Puntos de cambio brusco (*changepoints*) — el patron de consumo cambia de repente
-    > - **ANR** (Agua No Registrada): Diferencia entre agua que entra al barrio
-    >   y agua que los contadores registran. Un ANR alto puede indicar fugas o fraude.
-    > - **SHAP**: Explica *por que* un barrio se flaggea — que variable es la mas influyente.
+    > - **Linea azul**: Cuanta agua gasta este barrio cada mes (en metros cubicos).
+    >   Si la linea sube o baja de golpe, algo ha cambiado.
+    > - **❌ Marcas rojas**: Meses donde 2 o mas de nuestros 6 modelos dicen "aqui pasa algo raro".
+    >   Si hay muchas X rojas seguidas, el barrio tiene un problema persistente.
+    > - **Lineas naranjas punteadas**: Puntos donde el patron de consumo cambia bruscamente
+    >   (por ejemplo, un barrio que siempre gastaba 10,000 m3 y de repente pasa a 15,000).
+    > - **ANR (Agua No Registrada)**: Se compara el agua que ENTRA al barrio con el agua que
+    >   los contadores REGISTRAN. Si entra mas de lo que se registra, esa agua se esta perdiendo
+    >   (fugas, fraude, o errores de medicion). Un ANR cerca de 0 = todo bien. Un ANR alto = perdidas.
+    >   *Nota: muchos barrios no tienen datos de ANR (sale plano en 0) porque no hay sensor de entrada.*
+    > - **SHAP**: Explica en lenguaje humano **por que** un barrio se marca como sospechoso.
+    >   Dice cual es la variable mas importante (ej: "consume mucho mas que barrios similares").
     """)
 
     barrios = sorted(df["barrio_key"].unique())
@@ -472,8 +478,8 @@ elif page == "📈 Timeline por Barrio":
         # Changepoints
         cp_df = barrio_df[barrio_df["is_changepoint"] == True]
         for _, row in cp_df.iterrows():
-            fig.add_vline(x=row["fecha"], line_dash="dash", line_color="orange",
-                          annotation_text="Changepoint")
+            fig.add_vline(x=str(row["fecha"])[:10], line_dash="dash", line_color="orange",
+                          annotation_text="Cambio de patron")
 
         fig.update_layout(
             title=f"{barrio_name} — Consumo Mensual",
@@ -484,27 +490,46 @@ elif page == "📈 Timeline por Barrio":
 
         # ANR ratio timeline
         if "anr_ratio" in barrio_df.columns:
-            fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(
-                x=barrio_df["fecha"], y=barrio_df["anr_ratio"],
-                mode="lines+markers", name="ANR Ratio",
-                line=dict(color="#e65100", width=2),
-            ))
-            fig2.add_hline(y=1.0, line_dash="dash", line_color="gray",
-                           annotation_text="Equilibrio (ANR=1)")
-            fig2.update_layout(
-                title=f"{barrio_name} — Agua No Registrada (ANR)",
-                xaxis_title="Fecha", yaxis_title="ANR Ratio",
-                height=300,
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            anr_sum = barrio_df["anr_ratio"].fillna(0).sum()
+            if anr_sum == 0:
+                st.info(
+                    "📡 **Sin datos de ANR para este barrio.** "
+                    "El Agua No Registrada (ANR) solo se puede calcular cuando hay un "
+                    "contador de entrada al barrio. Este barrio no tiene ese sensor instalado, "
+                    "así que la gráfica saldría plana en 0 — por eso no la mostramos."
+                )
+            else:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=barrio_df["fecha"], y=barrio_df["anr_ratio"],
+                    mode="lines+markers", name="ANR Ratio",
+                    line=dict(color="#e65100", width=2),
+                ))
+                fig2.add_hline(y=1.0, line_dash="dash", line_color="gray",
+                               annotation_text="Equilibrio (ANR=1)")
+                fig2.update_layout(
+                    title=f"{barrio_name} — Agua No Registrada (ANR)",
+                    xaxis_title="Fecha", yaxis_title="ANR Ratio",
+                    height=300,
+                )
+                st.plotly_chart(fig2, use_container_width=True)
 
         # Details table
         st.subheader("Detalle mensual")
+        col_rename = {
+            "fecha": "Mes",
+            "consumo_litros": "Consumo (litros)",
+            "n_models_detecting": "Modelos que detectan anomalia (de 6)",
+            "alert_color": "Nivel de alerta",
+            "ensemble_score": "Puntuacion de riesgo (0-1)",
+            "anr_ratio": "ANR (Agua No Registrada)",
+        }
         cols_show = ["fecha", "consumo_litros", "n_models_detecting", "alert_color",
                      "ensemble_score", "anr_ratio"]
         cols_avail = [c for c in cols_show if c in barrio_df.columns]
-        st.dataframe(barrio_df[cols_avail].reset_index(drop=True), use_container_width=True)
+        display_df = barrio_df[cols_avail].copy().reset_index(drop=True)
+        display_df = display_df.rename(columns={c: col_rename.get(c, c) for c in cols_avail})
+        st.dataframe(display_df, use_container_width=True)
 
         # SHAP Explainability
         if "shap_explanation" in barrio_df.columns:
