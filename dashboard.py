@@ -95,6 +95,7 @@ st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "Navegacion",
     ["📊 KPIs Ejecutivos", "🗺️ Mapa de Alicante", "📈 Timeline por Barrio",
+     "🔍 Detector de Fugas",
      "🔬 Validacion", "🤝 AquaCare", "🤖 Los Modelos", "✅ Fiabilidad"],
 )
 
@@ -484,6 +485,304 @@ elif page == "📈 Timeline por Barrio":
                     shap_text = latest.get("shap_explanation", "")
                     if shap_text and str(shap_text) != "nan":
                         st.markdown(f"**Drivers (ultimo mes):** {shap_text}")
+
+
+# ═══════════════════════════════════════════════════════════════
+# PAGE 3b: DETECTOR DE FUGAS (datos sintéticos horarios)
+# ═══════════════════════════════════════════════════════════════
+elif page == "🔍 Detector de Fugas":
+    st.title("🔍 Detector de Fugas — Demo con Datos Horarios")
+
+    SYNTHETIC_PATH = os.path.join(DATA_DIR, "synthetic_hourly_domicilio.csv")
+    LABELS_PATH = os.path.join(DATA_DIR, "synthetic_leak_labels.csv")
+
+    if not os.path.exists(SYNTHETIC_PATH) or not os.path.exists(LABELS_PATH):
+        st.error("Datos sintéticos no encontrados. Ejecuta `python generate_synthetic_leaks.py` primero.")
+    else:
+        @st.cache_data
+        def load_synthetic():
+            df_s = pd.read_csv(SYNTHETIC_PATH, parse_dates=["timestamp"])
+            labels = pd.read_csv(LABELS_PATH)
+            labels["inicio_fuga"] = pd.to_datetime(labels["inicio_fuga"])
+            labels["fin_fuga"] = pd.to_datetime(labels["fin_fuga"])
+            return df_s, labels
+
+        df_syn, leak_labels = load_synthetic()
+
+        st.markdown("""
+        > **¿Qué estás viendo?** Datos horarios simulados de **{n_dom} domicilios** durante
+        > **{n_days} días** (junio-julio 2024). Se han inyectado **{n_leaks} fugas reales**
+        > de 5 tipos distintos para demostrar que nuestro sistema las detecta.
+        >
+        > Con datos reales hora a hora de Aguas de Alicante, este detector podría
+        > identificar fugas en **horas, no meses**, ahorrando miles de m³ de agua.
+        """.format(
+            n_dom=df_syn["contrato_id"].nunique(),
+            n_days=(df_syn["timestamp"].max() - df_syn["timestamp"].min()).days,
+            n_leaks=len(leak_labels),
+        ))
+
+        # ── KPIs ──
+        st.markdown("---")
+        n_domicilios = df_syn["contrato_id"].nunique()
+        n_fugas = len(leak_labels)
+        agua_fuga_litros = 0
+        for _, lk in leak_labels.iterrows():
+            mask = (
+                (df_syn["contrato_id"] == lk["contrato_id"])
+                & (df_syn["timestamp"] >= lk["inicio_fuga"])
+                & (df_syn["timestamp"] <= lk["fin_fuga"])
+            )
+            agua_fuga_litros += df_syn.loc[mask, "consumo_litros"].sum()
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Domicilios simulados", n_domicilios)
+        col2.metric("Fugas inyectadas", n_fugas)
+        col3.metric("Agua perdida estimada", f"{agua_fuga_litros/1000:,.1f} m³")
+        col4.metric("Coste estimado", f"€{agua_fuga_litros/1000 * COSTE_M3:,.0f}")
+
+        # ── Resumen de tipos de fuga ──
+        st.markdown("---")
+        st.subheader("Tipos de Fuga Inyectados")
+
+        tipo_desc = {
+            "fuga_lenta_continua": ("🚰 Goteo constante", "Cisterna o grifo que gotea: +2-8 litros/hora las 24h. Difícil de notar para el usuario."),
+            "rotura_tuberia": ("💥 Rotura de tubería", "Pico masivo (5-15× el consumo base) durante 6-48 horas. Emergencia clara."),
+            "degradacion_gradual": ("📈 Degradación gradual", "Fuga que empeora linealmente con el tiempo. Pasa desapercibida semanas."),
+            "consumo_nocturno_anomalo": ("🌙 Consumo nocturno anómalo", "Flujo anormal entre 1-5am. Puede indicar uso no autorizado o fraude."),
+            "fuga_intermitente": ("⚡ Fuga intermitente", "Picos periódicos cada 4-8 horas. Patrón cíclico sospechoso."),
+        }
+
+        for tipo, count in leak_labels["tipo_fuga"].value_counts().items():
+            icon, desc = tipo_desc.get(tipo, ("❓", tipo))
+            st.markdown(f"**{icon}** × {count} — {desc}")
+
+        # ── Detección: análisis nocturno ──
+        st.markdown("---")
+        st.subheader("🌙 Análisis de Flujo Nocturno (2am-5am)")
+        st.markdown("""
+        > El flujo nocturno mínimo (NMF) es la técnica estándar en la industria del agua.
+        > Entre las 2am y 5am el consumo doméstico debería ser casi cero.
+        > Un consumo elevado indica fugas o fraude.
+        """)
+
+        df_syn["hour"] = df_syn["timestamp"].dt.hour
+        df_syn["date"] = df_syn["timestamp"].dt.date
+
+        # Compute night/day ratio per domicilio
+        night_consumption = (
+            df_syn[df_syn["hour"].isin([2, 3, 4])]
+            .groupby("contrato_id")["consumo_litros"]
+            .mean()
+            .rename("night_mean")
+        )
+        day_consumption = (
+            df_syn[df_syn["hour"].isin(range(10, 18))]
+            .groupby("contrato_id")["consumo_litros"]
+            .mean()
+            .rename("day_mean")
+        )
+        ratio_df = pd.concat([night_consumption, day_consumption], axis=1)
+        ratio_df["night_day_ratio"] = ratio_df["night_mean"] / ratio_df["day_mean"].replace(0, np.nan)
+        ratio_df["has_leak"] = ratio_df.index.isin(leak_labels["contrato_id"])
+        ratio_df["leak_type"] = ratio_df.index.map(
+            leak_labels.set_index("contrato_id")["tipo_fuga"]
+        ).fillna("Normal")
+
+        fig_ratio = px.histogram(
+            ratio_df.reset_index(),
+            x="night_day_ratio",
+            color="has_leak",
+            nbins=40,
+            color_discrete_map={True: "#d32f2f", False: "#90caf9"},
+            labels={"night_day_ratio": "Ratio Nocturno/Diurno", "has_leak": "Tiene fuga"},
+            title="Distribución del Ratio Nocturno/Diurno",
+            barmode="overlay",
+            opacity=0.7,
+        )
+        fig_ratio.add_vline(x=ratio_df["night_day_ratio"].quantile(0.95),
+                            line_dash="dash", line_color="orange",
+                            annotation_text="Umbral P95")
+        st.plotly_chart(fig_ratio, use_container_width=True)
+
+        # ── Detección: Z-score horario ──
+        st.markdown("---")
+        st.subheader("📊 Detección por Z-Score Horario")
+        st.markdown("""
+        > Calculamos el consumo medio y desviación estándar por hora del día para cada
+        > tipo de uso. Un domicilio con consumo a >3σ de la media es sospechoso.
+        """)
+
+        # Compute hourly z-scores per uso
+        hourly_stats = (
+            df_syn.groupby(["uso", "hour"])["consumo_litros"]
+            .agg(["mean", "std"])
+            .rename(columns={"mean": "mu", "std": "sigma"})
+        )
+        df_syn_z = df_syn.merge(hourly_stats, left_on=["uso", "hour"], right_index=True)
+        df_syn_z["zscore"] = (df_syn_z["consumo_litros"] - df_syn_z["mu"]) / df_syn_z["sigma"].replace(0, np.nan)
+
+        # Max zscore per domicilio
+        max_z = df_syn_z.groupby("contrato_id")["zscore"].max().rename("max_zscore")
+        max_z_df = max_z.reset_index()
+        max_z_df["has_leak"] = max_z_df["contrato_id"].isin(leak_labels["contrato_id"])
+
+        fig_z = px.histogram(
+            max_z_df, x="max_zscore", color="has_leak", nbins=50,
+            color_discrete_map={True: "#d32f2f", False: "#90caf9"},
+            labels={"max_zscore": "Z-Score Máximo", "has_leak": "Tiene fuga"},
+            title="Distribución del Z-Score Máximo por Domicilio",
+            barmode="overlay", opacity=0.7,
+        )
+        fig_z.add_vline(x=3.0, line_dash="dash", line_color="orange",
+                        annotation_text="Umbral 3σ")
+        st.plotly_chart(fig_z, use_container_width=True)
+
+        # Detection performance
+        threshold_z = 3.0
+        detected_z = set(max_z_df[max_z_df["max_zscore"] > threshold_z]["contrato_id"])
+        real_leaks = set(leak_labels["contrato_id"])
+        tp = len(detected_z & real_leaks)
+        fp = len(detected_z - real_leaks)
+        fn = len(real_leaks - detected_z)
+        precision_z = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall_z = tp / (tp + fn) if (tp + fn) > 0 else 0
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Fugas detectadas (Z>3)", tp)
+        col2.metric("Falsas alarmas", fp)
+        col3.metric("Precision", f"{precision_z:.1%}")
+        col4.metric("Recall", f"{recall_z:.1%}")
+
+        # ── Timeline individual de domicilios con fuga ──
+        st.markdown("---")
+        st.subheader("🔎 Explorar Domicilios con Fuga")
+        st.markdown("> Selecciona un domicilio con fuga para ver su consumo hora a hora y la anomalía inyectada.")
+
+        selected_leak = st.selectbox(
+            "Selecciona domicilio con fuga:",
+            leak_labels.apply(
+                lambda r: f"{r['contrato_id']} — {r['tipo_fuga']} ({r['barrio']})", axis=1
+            ).values,
+        )
+        selected_id = selected_leak.split(" — ")[0]
+        leak_info = leak_labels[leak_labels["contrato_id"] == selected_id].iloc[0]
+
+        dom_data = df_syn[df_syn["contrato_id"] == selected_id].sort_values("timestamp")
+
+        fig_dom = go.Figure()
+
+        # Zona de fuga (fondo rojo)
+        fig_dom.add_vrect(
+            x0=leak_info["inicio_fuga"], x1=leak_info["fin_fuga"],
+            fillcolor="red", opacity=0.1, line_width=0,
+            annotation_text=f"FUGA: {leak_info['tipo_fuga']}",
+            annotation_position="top left",
+        )
+
+        # Consumo horario
+        fig_dom.add_trace(go.Scatter(
+            x=dom_data["timestamp"], y=dom_data["consumo_litros"],
+            mode="lines", name="Consumo (litros/hora)",
+            line=dict(color="#1976d2", width=1),
+        ))
+
+        # Media móvil 24h
+        dom_data_ma = dom_data.set_index("timestamp")["consumo_litros"].rolling("24h").mean()
+        fig_dom.add_trace(go.Scatter(
+            x=dom_data_ma.index, y=dom_data_ma.values,
+            mode="lines", name="Media móvil 24h",
+            line=dict(color="#ff9800", width=2),
+        ))
+
+        fig_dom.update_layout(
+            title=f"{selected_id} — {leak_info['tipo_fuga']} ({leak_info['barrio']})",
+            xaxis_title="Fecha/Hora", yaxis_title="Consumo (litros/hora)",
+            height=450,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02),
+        )
+        st.plotly_chart(fig_dom, use_container_width=True)
+
+        # Detalle de la fuga
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Tipo", leak_info["tipo_fuga"])
+        col2.metric("Inicio", str(leak_info["inicio_fuga"])[:16])
+        col3.metric("Duración", f"{leak_info['duracion_horas']} horas")
+
+        # ── Curva diurna: normal vs fuga ──
+        st.markdown("---")
+        st.subheader("📉 Patrón Diurno: Normal vs Fuga")
+        st.markdown("> Comparamos la curva diurna media de domicilios normales vs los que tienen fuga.")
+
+        normal_ids = set(df_syn["contrato_id"].unique()) - real_leaks
+        normal_curve = (
+            df_syn[df_syn["contrato_id"].isin(normal_ids)]
+            .groupby("hour")["consumo_litros"].mean()
+        )
+        leak_curve = (
+            df_syn[df_syn["contrato_id"].isin(real_leaks)]
+            .groupby("hour")["consumo_litros"].mean()
+        )
+
+        fig_diurnal = go.Figure()
+        fig_diurnal.add_trace(go.Scatter(
+            x=normal_curve.index, y=normal_curve.values,
+            mode="lines+markers", name="Normal",
+            line=dict(color="#4caf50", width=2),
+        ))
+        fig_diurnal.add_trace(go.Scatter(
+            x=leak_curve.index, y=leak_curve.values,
+            mode="lines+markers", name="Con fuga",
+            line=dict(color="#d32f2f", width=2),
+        ))
+        fig_diurnal.add_vrect(x0=1, x1=5, fillcolor="blue", opacity=0.05, line_width=0,
+                              annotation_text="Ventana nocturna", annotation_position="top left")
+        fig_diurnal.update_layout(
+            title="Curva Diurna Media: Domicilios Normales vs Con Fuga",
+            xaxis_title="Hora del día", yaxis_title="Consumo medio (litros/hora)",
+            height=400,
+        )
+        st.plotly_chart(fig_diurnal, use_container_width=True)
+
+        # ── Heatmap por barrio ──
+        st.markdown("---")
+        st.subheader("🗺️ Heatmap de Anomalías por Barrio")
+
+        barrio_leak_count = leak_labels.groupby("barrio").size().rename("n_fugas")
+        barrio_total = df_syn.groupby("barrio")["contrato_id"].nunique().rename("n_domicilios")
+        barrio_stats = pd.concat([barrio_total, barrio_leak_count], axis=1).fillna(0)
+        barrio_stats["pct_fugas"] = (barrio_stats["n_fugas"] / barrio_stats["n_domicilios"] * 100).round(1)
+        barrio_stats = barrio_stats.sort_values("pct_fugas", ascending=True)
+
+        fig_hm = go.Figure(go.Bar(
+            y=barrio_stats.index,
+            x=barrio_stats["pct_fugas"],
+            orientation="h",
+            marker_color=[
+                "#d32f2f" if p > 15 else "#ff9800" if p > 5 else "#4caf50"
+                for p in barrio_stats["pct_fugas"]
+            ],
+            text=[f"{p:.0f}% ({int(n)})" for p, n in zip(barrio_stats["pct_fugas"], barrio_stats["n_fugas"])],
+            textposition="outside",
+        ))
+        fig_hm.update_layout(
+            title="Porcentaje de Domicilios con Fuga por Barrio",
+            xaxis_title="% domicilios con fuga",
+            height=max(400, len(barrio_stats) * 30),
+            margin=dict(l=200),
+        )
+        st.plotly_chart(fig_hm, use_container_width=True)
+
+        # ── Ground truth table ──
+        st.markdown("---")
+        st.subheader("📋 Ground Truth (Fugas Inyectadas)")
+        st.dataframe(
+            leak_labels[["contrato_id", "barrio", "uso", "tipo_fuga", "inicio_fuga", "fin_fuga", "duracion_horas"]],
+            use_container_width=True,
+        )
+
+        # Cleanup temp columns
+        df_syn.drop(columns=["hour", "date"], inplace=True, errors="ignore")
 
 
 # ═══════════════════════════════════════════════════════════════
