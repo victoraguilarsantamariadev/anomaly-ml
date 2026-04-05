@@ -1611,6 +1611,16 @@ def main():
         adjacency = compute_barrio_adjacency(GIS_DATA_DIR)
         print(f"  {len(adjacency)} barrios con vecinos calculados")
 
+    # Datos creativos externos (NDVI, Airbnb, Renta, Catastro)
+    creative_df = pd.DataFrame()
+    try:
+        from external_data import load_creative_external_data
+        creative_df = load_creative_external_data()
+        print(f"  Datos creativos: {len(creative_df)} barrios x {len(creative_df.columns)} features "
+              f"(NDVI, Airbnb, Renta, Catastro)")
+    except Exception as e:
+        print(f"  Datos creativos no disponibles: {e}")
+
     # Limitar barrios si se pide
     if args.barrios > 0:
         barrios_unicos = df_all["barrio"].unique()[:args.barrios]
@@ -2024,6 +2034,17 @@ def main():
         results_csv["models_detecting"] = results_csv["models_detecting"].apply(
             lambda x: ";".join(x) if x else ""
         )
+        # Merge datos creativos externos (NDVI, Airbnb, Renta, Catastro)
+        if not creative_df.empty:
+            results_csv["_barrio_clean_cr"] = results_csv["barrio_key"].str.split("__").str[0]
+            results_csv = results_csv.merge(
+                creative_df, left_on="_barrio_clean_cr", right_on="barrio",
+                how="left", suffixes=("", "_creative"),
+            )
+            results_csv = results_csv.drop(
+                columns=["barrio_creative", "_barrio_clean_cr"], errors="ignore"
+            )
+
         # Merge riesgo de infraestructura al CSV si disponible
         if not risk_df.empty:
             results_csv["_barrio_clean"] = results_csv["barrio_key"].str.split("__").str[0]

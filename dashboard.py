@@ -95,8 +95,8 @@ st.sidebar.markdown("---")
 page = st.sidebar.radio(
     "Navegacion",
     ["📊 KPIs Ejecutivos", "🗺️ Mapa de Alicante", "📈 Timeline por Barrio",
-     "🔍 Detector de Fugas",
-     "🔬 Validacion", "🤝 AquaCare", "🤖 Los Modelos", "✅ Fiabilidad"],
+     "🔬 Validacion", "🤝 AquaCare", "🤖 Los Modelos", "✅ Fiabilidad",
+     "🛰️ Datos Externos"],
 )
 
 df = load_results()
@@ -152,6 +152,12 @@ if page == "📊 KPIs Ejecutivos":
     # Economic impact
     st.markdown("---")
     st.subheader("💰 Impacto Economico Estimado")
+    st.markdown("""
+    > **¿Que significan estos numeros?** Sumamos toda el agua que se consume en barrios
+    > con alertas rojas o naranjas. Si parte de esa agua se esta perdiendo por fugas o fraude,
+    > tiene un coste. Estimamos que **el 30%** de las anomalias detectadas son perdidas reales
+    > (el resto pueden ser errores de medicion o patrones explicables).
+    """)
 
     agua_riesgo_litros = df[df["alert_color"].isin(["ROJO", "NARANJA"])]["consumo_litros"].sum()
     agua_riesgo_m3 = agua_riesgo_litros / 1000
@@ -165,6 +171,20 @@ if page == "📊 KPIs Ejecutivos":
     # Validation metrics
     st.markdown("---")
     st.subheader("🎯 Metricas de Validacion")
+    st.markdown("""
+    > **¿Que significan estos numeros?** Son las "notas del examen" de nuestro sistema:
+    >
+    > - **Precision** = De todas las alertas que damos, ¿cuantas son problemas reales?
+    >   *Ejemplo: si es 0.46, significa que de cada 10 alertas, entre 4 y 5 son reales.*
+    > - **Recall** = De todos los problemas reales que existen, ¿cuantos detectamos?
+    >   *Ejemplo: si es 0.39, detectamos casi 4 de cada 10 problemas reales.*
+    > - **F1** = La nota media entre Precision y Recall. Mas alto = mejor equilibrio.
+    > - **AUC-PR** = Nota global del sistema (de 0 a 1). Un 0.70 es bueno para este tipo de problema.
+    >
+    > **¿Por que no son mas altos?** Porque detectar fraude de agua es MUY dificil — no hay
+    > un dataset perfecto de "aqui hay fraude, aqui no". Usamos pseudo-etiquetas construidas
+    > con datos independientes (cambios de contador + infraestructura), que son conservadoras.
+    """)
     if "pseudo_label" in df.columns and "stacking_score" in df.columns:
         from sklearn.metrics import precision_score, recall_score, f1_score, roc_auc_score, average_precision_score
         y_true = df["pseudo_label"].values
@@ -176,9 +196,21 @@ if page == "📊 KPIs Ejecutivos":
         col3.metric("F1", f"{f1_score(y_true, n_models_pred, zero_division=0):.3f}")
         col4.metric("AUC-PR (Stacking)", f"{average_precision_score(y_true, df['stacking_score'].fillna(0)):.3f}")
 
-    # Top 5 barrios
+    # Top 10 barrios
     st.markdown("---")
     st.subheader("🏘️ Top 10 Barrios con Mayor Riesgo")
+    st.markdown("""
+    > **¿Que es esta tabla?** Los 10 barrios donde nuestro sistema detecta MAS anomalias.
+    >
+    > - **mean_score**: Puntuacion de 0 a 1. Mas alto = mas sospechoso.
+    > - **n_alertas**: Cuantos meses tienen 2 o mas modelos diciendo "algo raro pasa".
+    > - **consumo_m3**: Total de agua consumida (en metros cubicos). Barrios grandes gastan mas.
+    > - **driver_principal**: La razon principal que explica la anomalia. Ejemplo:
+    >   - `+flag_m2` = "IsolationForest lo detecto" (se comporta distinto a los demas)
+    >   - `+deviation_from_group_trend` = "su consumo se desvia mucho del grupo"
+    >   - `+flag_anr` = "mucha agua no registrada (perdidas fisicas)"
+    >   - `+flag_iqr` = "valores fuera del rango estadistico normal"
+    """)
     top = (
         df.groupby("barrio_key")
         .agg(
@@ -332,7 +364,16 @@ elif page == "🗺️ Mapa de Alicante":
                         "weight": 0.5,
                         "fillOpacity": 0.3 if s > 0 else 0,
                     },
-                    popup=folium.Popup(f"<b>Sector: {sector_name}</b><br>Score: {score:.3f}", max_width=200),
+                    popup=folium.Popup(
+                        f"<b>{sector_name}</b><br>"
+                        f"<i>Sector hidraulico</i><br>"
+                        + (f"Barrio: {barrio_name}<br>"
+                           f"Ensemble Score: <b>{score:.3f}</b><br>"
+                           f"Alertas: {int(scores['n_red'])} rojas, {int(scores['n_orange'])} naranja<br>"
+                           f"Consumo: {scores['consumo_total']/1000:,.0f} m3"
+                           if scores else "Sin datos de anomalia"),
+                        max_width=280,
+                    ),
                 ).add_to(m)
 
         # Helper to get centroid from any geometry
@@ -391,12 +432,18 @@ elif page == "📈 Timeline por Barrio":
     > **¿Que estas viendo?** La evolucion mes a mes de un barrio concreto.
     > Selecciona un barrio del desplegable para ver su historial completo.
     >
-    > - **Linea azul**: Consumo real de agua (m3/mes)
-    > - **❌ Marcas rojas**: Meses donde 2 o mas modelos detectan anomalia
-    > - **Lineas naranjas punteadas**: Puntos de cambio brusco (*changepoints*) — el patron de consumo cambia de repente
-    > - **ANR** (Agua No Registrada): Diferencia entre agua que entra al barrio
-    >   y agua que los contadores registran. Un ANR alto puede indicar fugas o fraude.
-    > - **SHAP**: Explica *por que* un barrio se flaggea — que variable es la mas influyente.
+    > - **Linea azul**: Cuanta agua gasta este barrio cada mes (en metros cubicos).
+    >   Si la linea sube o baja de golpe, algo ha cambiado.
+    > - **❌ Marcas rojas**: Meses donde 2 o mas de nuestros 6 modelos dicen "aqui pasa algo raro".
+    >   Si hay muchas X rojas seguidas, el barrio tiene un problema persistente.
+    > - **Lineas naranjas punteadas**: Puntos donde el patron de consumo cambia bruscamente
+    >   (por ejemplo, un barrio que siempre gastaba 10,000 m3 y de repente pasa a 15,000).
+    > - **ANR (Agua No Registrada)**: Se compara el agua que ENTRA al barrio con el agua que
+    >   los contadores REGISTRAN. Si entra mas de lo que se registra, esa agua se esta perdiendo
+    >   (fugas, fraude, o errores de medicion). Un ANR cerca de 0 = todo bien. Un ANR alto = perdidas.
+    >   *Nota: muchos barrios no tienen datos de ANR (sale plano en 0) porque no hay sensor de entrada.*
+    > - **SHAP**: Explica en lenguaje humano **por que** un barrio se marca como sospechoso.
+    >   Dice cual es la variable mas importante (ej: "consume mucho mas que barrios similares").
     """)
 
     barrios = sorted(df["barrio_key"].unique())
@@ -431,8 +478,8 @@ elif page == "📈 Timeline por Barrio":
         # Changepoints
         cp_df = barrio_df[barrio_df["is_changepoint"] == True]
         for _, row in cp_df.iterrows():
-            fig.add_vline(x=row["fecha"], line_dash="dash", line_color="orange",
-                          annotation_text="Changepoint")
+            fig.add_vline(x=str(row["fecha"])[:10], line_dash="dash", line_color="orange",
+                          annotation_text="Cambio de patron")
 
         fig.update_layout(
             title=f"{barrio_name} — Consumo Mensual",
@@ -443,27 +490,46 @@ elif page == "📈 Timeline por Barrio":
 
         # ANR ratio timeline
         if "anr_ratio" in barrio_df.columns:
-            fig2 = go.Figure()
-            fig2.add_trace(go.Scatter(
-                x=barrio_df["fecha"], y=barrio_df["anr_ratio"],
-                mode="lines+markers", name="ANR Ratio",
-                line=dict(color="#e65100", width=2),
-            ))
-            fig2.add_hline(y=1.0, line_dash="dash", line_color="gray",
-                           annotation_text="Equilibrio (ANR=1)")
-            fig2.update_layout(
-                title=f"{barrio_name} — Agua No Registrada (ANR)",
-                xaxis_title="Fecha", yaxis_title="ANR Ratio",
-                height=300,
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            anr_sum = barrio_df["anr_ratio"].fillna(0).sum()
+            if anr_sum == 0:
+                st.info(
+                    "📡 **Sin datos de ANR para este barrio.** "
+                    "El Agua No Registrada (ANR) solo se puede calcular cuando hay un "
+                    "contador de entrada al barrio. Este barrio no tiene ese sensor instalado, "
+                    "así que la gráfica saldría plana en 0 — por eso no la mostramos."
+                )
+            else:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=barrio_df["fecha"], y=barrio_df["anr_ratio"],
+                    mode="lines+markers", name="ANR Ratio",
+                    line=dict(color="#e65100", width=2),
+                ))
+                fig2.add_hline(y=1.0, line_dash="dash", line_color="gray",
+                               annotation_text="Equilibrio (ANR=1)")
+                fig2.update_layout(
+                    title=f"{barrio_name} — Agua No Registrada (ANR)",
+                    xaxis_title="Fecha", yaxis_title="ANR Ratio",
+                    height=300,
+                )
+                st.plotly_chart(fig2, use_container_width=True)
 
         # Details table
         st.subheader("Detalle mensual")
+        col_rename = {
+            "fecha": "Mes",
+            "consumo_litros": "Consumo (litros)",
+            "n_models_detecting": "Modelos que detectan anomalia (de 6)",
+            "alert_color": "Nivel de alerta",
+            "ensemble_score": "Puntuacion de riesgo (0-1)",
+            "anr_ratio": "ANR (Agua No Registrada)",
+        }
         cols_show = ["fecha", "consumo_litros", "n_models_detecting", "alert_color",
                      "ensemble_score", "anr_ratio"]
         cols_avail = [c for c in cols_show if c in barrio_df.columns]
-        st.dataframe(barrio_df[cols_avail].reset_index(drop=True), use_container_width=True)
+        display_df = barrio_df[cols_avail].copy().reset_index(drop=True)
+        display_df = display_df.rename(columns={c: col_rename.get(c, c) for c in cols_avail})
+        st.dataframe(display_df, use_container_width=True)
 
         # SHAP Explainability
         if "shap_explanation" in barrio_df.columns:
@@ -485,304 +551,6 @@ elif page == "📈 Timeline por Barrio":
                     shap_text = latest.get("shap_explanation", "")
                     if shap_text and str(shap_text) != "nan":
                         st.markdown(f"**Drivers (ultimo mes):** {shap_text}")
-
-
-# ═══════════════════════════════════════════════════════════════
-# PAGE 3b: DETECTOR DE FUGAS (datos sintéticos horarios)
-# ═══════════════════════════════════════════════════════════════
-elif page == "🔍 Detector de Fugas":
-    st.title("🔍 Detector de Fugas — Demo con Datos Horarios")
-
-    SYNTHETIC_PATH = os.path.join(DATA_DIR, "synthetic_hourly_domicilio.csv")
-    LABELS_PATH = os.path.join(DATA_DIR, "synthetic_leak_labels.csv")
-
-    if not os.path.exists(SYNTHETIC_PATH) or not os.path.exists(LABELS_PATH):
-        st.error("Datos sintéticos no encontrados. Ejecuta `python generate_synthetic_leaks.py` primero.")
-    else:
-        @st.cache_data
-        def load_synthetic():
-            df_s = pd.read_csv(SYNTHETIC_PATH, parse_dates=["timestamp"])
-            labels = pd.read_csv(LABELS_PATH)
-            labels["inicio_fuga"] = pd.to_datetime(labels["inicio_fuga"])
-            labels["fin_fuga"] = pd.to_datetime(labels["fin_fuga"])
-            return df_s, labels
-
-        df_syn, leak_labels = load_synthetic()
-
-        st.markdown("""
-        > **¿Qué estás viendo?** Datos horarios simulados de **{n_dom} domicilios** durante
-        > **{n_days} días** (junio-julio 2024). Se han inyectado **{n_leaks} fugas reales**
-        > de 5 tipos distintos para demostrar que nuestro sistema las detecta.
-        >
-        > Con datos reales hora a hora de Aguas de Alicante, este detector podría
-        > identificar fugas en **horas, no meses**, ahorrando miles de m³ de agua.
-        """.format(
-            n_dom=df_syn["contrato_id"].nunique(),
-            n_days=(df_syn["timestamp"].max() - df_syn["timestamp"].min()).days,
-            n_leaks=len(leak_labels),
-        ))
-
-        # ── KPIs ──
-        st.markdown("---")
-        n_domicilios = df_syn["contrato_id"].nunique()
-        n_fugas = len(leak_labels)
-        agua_fuga_litros = 0
-        for _, lk in leak_labels.iterrows():
-            mask = (
-                (df_syn["contrato_id"] == lk["contrato_id"])
-                & (df_syn["timestamp"] >= lk["inicio_fuga"])
-                & (df_syn["timestamp"] <= lk["fin_fuga"])
-            )
-            agua_fuga_litros += df_syn.loc[mask, "consumo_litros"].sum()
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Domicilios simulados", n_domicilios)
-        col2.metric("Fugas inyectadas", n_fugas)
-        col3.metric("Agua perdida estimada", f"{agua_fuga_litros/1000:,.1f} m³")
-        col4.metric("Coste estimado", f"€{agua_fuga_litros/1000 * COSTE_M3:,.0f}")
-
-        # ── Resumen de tipos de fuga ──
-        st.markdown("---")
-        st.subheader("Tipos de Fuga Inyectados")
-
-        tipo_desc = {
-            "fuga_lenta_continua": ("🚰 Goteo constante", "Cisterna o grifo que gotea: +2-8 litros/hora las 24h. Difícil de notar para el usuario."),
-            "rotura_tuberia": ("💥 Rotura de tubería", "Pico masivo (5-15× el consumo base) durante 6-48 horas. Emergencia clara."),
-            "degradacion_gradual": ("📈 Degradación gradual", "Fuga que empeora linealmente con el tiempo. Pasa desapercibida semanas."),
-            "consumo_nocturno_anomalo": ("🌙 Consumo nocturno anómalo", "Flujo anormal entre 1-5am. Puede indicar uso no autorizado o fraude."),
-            "fuga_intermitente": ("⚡ Fuga intermitente", "Picos periódicos cada 4-8 horas. Patrón cíclico sospechoso."),
-        }
-
-        for tipo, count in leak_labels["tipo_fuga"].value_counts().items():
-            icon, desc = tipo_desc.get(tipo, ("❓", tipo))
-            st.markdown(f"**{icon}** × {count} — {desc}")
-
-        # ── Detección: análisis nocturno ──
-        st.markdown("---")
-        st.subheader("🌙 Análisis de Flujo Nocturno (2am-5am)")
-        st.markdown("""
-        > El flujo nocturno mínimo (NMF) es la técnica estándar en la industria del agua.
-        > Entre las 2am y 5am el consumo doméstico debería ser casi cero.
-        > Un consumo elevado indica fugas o fraude.
-        """)
-
-        df_syn["hour"] = df_syn["timestamp"].dt.hour
-        df_syn["date"] = df_syn["timestamp"].dt.date
-
-        # Compute night/day ratio per domicilio
-        night_consumption = (
-            df_syn[df_syn["hour"].isin([2, 3, 4])]
-            .groupby("contrato_id")["consumo_litros"]
-            .mean()
-            .rename("night_mean")
-        )
-        day_consumption = (
-            df_syn[df_syn["hour"].isin(range(10, 18))]
-            .groupby("contrato_id")["consumo_litros"]
-            .mean()
-            .rename("day_mean")
-        )
-        ratio_df = pd.concat([night_consumption, day_consumption], axis=1)
-        ratio_df["night_day_ratio"] = ratio_df["night_mean"] / ratio_df["day_mean"].replace(0, np.nan)
-        ratio_df["has_leak"] = ratio_df.index.isin(leak_labels["contrato_id"])
-        ratio_df["leak_type"] = ratio_df.index.map(
-            leak_labels.set_index("contrato_id")["tipo_fuga"]
-        ).fillna("Normal")
-
-        fig_ratio = px.histogram(
-            ratio_df.reset_index(),
-            x="night_day_ratio",
-            color="has_leak",
-            nbins=40,
-            color_discrete_map={True: "#d32f2f", False: "#90caf9"},
-            labels={"night_day_ratio": "Ratio Nocturno/Diurno", "has_leak": "Tiene fuga"},
-            title="Distribución del Ratio Nocturno/Diurno",
-            barmode="overlay",
-            opacity=0.7,
-        )
-        fig_ratio.add_vline(x=ratio_df["night_day_ratio"].quantile(0.95),
-                            line_dash="dash", line_color="orange",
-                            annotation_text="Umbral P95")
-        st.plotly_chart(fig_ratio, use_container_width=True)
-
-        # ── Detección: Z-score horario ──
-        st.markdown("---")
-        st.subheader("📊 Detección por Z-Score Horario")
-        st.markdown("""
-        > Calculamos el consumo medio y desviación estándar por hora del día para cada
-        > tipo de uso. Un domicilio con consumo a >3σ de la media es sospechoso.
-        """)
-
-        # Compute hourly z-scores per uso
-        hourly_stats = (
-            df_syn.groupby(["uso", "hour"])["consumo_litros"]
-            .agg(["mean", "std"])
-            .rename(columns={"mean": "mu", "std": "sigma"})
-        )
-        df_syn_z = df_syn.merge(hourly_stats, left_on=["uso", "hour"], right_index=True)
-        df_syn_z["zscore"] = (df_syn_z["consumo_litros"] - df_syn_z["mu"]) / df_syn_z["sigma"].replace(0, np.nan)
-
-        # Max zscore per domicilio
-        max_z = df_syn_z.groupby("contrato_id")["zscore"].max().rename("max_zscore")
-        max_z_df = max_z.reset_index()
-        max_z_df["has_leak"] = max_z_df["contrato_id"].isin(leak_labels["contrato_id"])
-
-        fig_z = px.histogram(
-            max_z_df, x="max_zscore", color="has_leak", nbins=50,
-            color_discrete_map={True: "#d32f2f", False: "#90caf9"},
-            labels={"max_zscore": "Z-Score Máximo", "has_leak": "Tiene fuga"},
-            title="Distribución del Z-Score Máximo por Domicilio",
-            barmode="overlay", opacity=0.7,
-        )
-        fig_z.add_vline(x=3.0, line_dash="dash", line_color="orange",
-                        annotation_text="Umbral 3σ")
-        st.plotly_chart(fig_z, use_container_width=True)
-
-        # Detection performance
-        threshold_z = 3.0
-        detected_z = set(max_z_df[max_z_df["max_zscore"] > threshold_z]["contrato_id"])
-        real_leaks = set(leak_labels["contrato_id"])
-        tp = len(detected_z & real_leaks)
-        fp = len(detected_z - real_leaks)
-        fn = len(real_leaks - detected_z)
-        precision_z = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall_z = tp / (tp + fn) if (tp + fn) > 0 else 0
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Fugas detectadas (Z>3)", tp)
-        col2.metric("Falsas alarmas", fp)
-        col3.metric("Precision", f"{precision_z:.1%}")
-        col4.metric("Recall", f"{recall_z:.1%}")
-
-        # ── Timeline individual de domicilios con fuga ──
-        st.markdown("---")
-        st.subheader("🔎 Explorar Domicilios con Fuga")
-        st.markdown("> Selecciona un domicilio con fuga para ver su consumo hora a hora y la anomalía inyectada.")
-
-        selected_leak = st.selectbox(
-            "Selecciona domicilio con fuga:",
-            leak_labels.apply(
-                lambda r: f"{r['contrato_id']} — {r['tipo_fuga']} ({r['barrio']})", axis=1
-            ).values,
-        )
-        selected_id = selected_leak.split(" — ")[0]
-        leak_info = leak_labels[leak_labels["contrato_id"] == selected_id].iloc[0]
-
-        dom_data = df_syn[df_syn["contrato_id"] == selected_id].sort_values("timestamp")
-
-        fig_dom = go.Figure()
-
-        # Zona de fuga (fondo rojo)
-        fig_dom.add_vrect(
-            x0=leak_info["inicio_fuga"], x1=leak_info["fin_fuga"],
-            fillcolor="red", opacity=0.1, line_width=0,
-            annotation_text=f"FUGA: {leak_info['tipo_fuga']}",
-            annotation_position="top left",
-        )
-
-        # Consumo horario
-        fig_dom.add_trace(go.Scatter(
-            x=dom_data["timestamp"], y=dom_data["consumo_litros"],
-            mode="lines", name="Consumo (litros/hora)",
-            line=dict(color="#1976d2", width=1),
-        ))
-
-        # Media móvil 24h
-        dom_data_ma = dom_data.set_index("timestamp")["consumo_litros"].rolling("24h").mean()
-        fig_dom.add_trace(go.Scatter(
-            x=dom_data_ma.index, y=dom_data_ma.values,
-            mode="lines", name="Media móvil 24h",
-            line=dict(color="#ff9800", width=2),
-        ))
-
-        fig_dom.update_layout(
-            title=f"{selected_id} — {leak_info['tipo_fuga']} ({leak_info['barrio']})",
-            xaxis_title="Fecha/Hora", yaxis_title="Consumo (litros/hora)",
-            height=450,
-            legend=dict(orientation="h", yanchor="bottom", y=1.02),
-        )
-        st.plotly_chart(fig_dom, use_container_width=True)
-
-        # Detalle de la fuga
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Tipo", leak_info["tipo_fuga"])
-        col2.metric("Inicio", str(leak_info["inicio_fuga"])[:16])
-        col3.metric("Duración", f"{leak_info['duracion_horas']} horas")
-
-        # ── Curva diurna: normal vs fuga ──
-        st.markdown("---")
-        st.subheader("📉 Patrón Diurno: Normal vs Fuga")
-        st.markdown("> Comparamos la curva diurna media de domicilios normales vs los que tienen fuga.")
-
-        normal_ids = set(df_syn["contrato_id"].unique()) - real_leaks
-        normal_curve = (
-            df_syn[df_syn["contrato_id"].isin(normal_ids)]
-            .groupby("hour")["consumo_litros"].mean()
-        )
-        leak_curve = (
-            df_syn[df_syn["contrato_id"].isin(real_leaks)]
-            .groupby("hour")["consumo_litros"].mean()
-        )
-
-        fig_diurnal = go.Figure()
-        fig_diurnal.add_trace(go.Scatter(
-            x=normal_curve.index, y=normal_curve.values,
-            mode="lines+markers", name="Normal",
-            line=dict(color="#4caf50", width=2),
-        ))
-        fig_diurnal.add_trace(go.Scatter(
-            x=leak_curve.index, y=leak_curve.values,
-            mode="lines+markers", name="Con fuga",
-            line=dict(color="#d32f2f", width=2),
-        ))
-        fig_diurnal.add_vrect(x0=1, x1=5, fillcolor="blue", opacity=0.05, line_width=0,
-                              annotation_text="Ventana nocturna", annotation_position="top left")
-        fig_diurnal.update_layout(
-            title="Curva Diurna Media: Domicilios Normales vs Con Fuga",
-            xaxis_title="Hora del día", yaxis_title="Consumo medio (litros/hora)",
-            height=400,
-        )
-        st.plotly_chart(fig_diurnal, use_container_width=True)
-
-        # ── Heatmap por barrio ──
-        st.markdown("---")
-        st.subheader("🗺️ Heatmap de Anomalías por Barrio")
-
-        barrio_leak_count = leak_labels.groupby("barrio").size().rename("n_fugas")
-        barrio_total = df_syn.groupby("barrio")["contrato_id"].nunique().rename("n_domicilios")
-        barrio_stats = pd.concat([barrio_total, barrio_leak_count], axis=1).fillna(0)
-        barrio_stats["pct_fugas"] = (barrio_stats["n_fugas"] / barrio_stats["n_domicilios"] * 100).round(1)
-        barrio_stats = barrio_stats.sort_values("pct_fugas", ascending=True)
-
-        fig_hm = go.Figure(go.Bar(
-            y=barrio_stats.index,
-            x=barrio_stats["pct_fugas"],
-            orientation="h",
-            marker_color=[
-                "#d32f2f" if p > 15 else "#ff9800" if p > 5 else "#4caf50"
-                for p in barrio_stats["pct_fugas"]
-            ],
-            text=[f"{p:.0f}% ({int(n)})" for p, n in zip(barrio_stats["pct_fugas"], barrio_stats["n_fugas"])],
-            textposition="outside",
-        ))
-        fig_hm.update_layout(
-            title="Porcentaje de Domicilios con Fuga por Barrio",
-            xaxis_title="% domicilios con fuga",
-            height=max(400, len(barrio_stats) * 30),
-            margin=dict(l=200),
-        )
-        st.plotly_chart(fig_hm, use_container_width=True)
-
-        # ── Ground truth table ──
-        st.markdown("---")
-        st.subheader("📋 Ground Truth (Fugas Inyectadas)")
-        st.dataframe(
-            leak_labels[["contrato_id", "barrio", "uso", "tipo_fuga", "inicio_fuga", "fin_fuga", "duracion_horas"]],
-            use_container_width=True,
-        )
-
-        # Cleanup temp columns
-        df_syn.drop(columns=["hour", "date"], inplace=True, errors="ignore")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1051,9 +819,19 @@ elif page == "🤝 AquaCare":
 elif page == "🤖 Los Modelos":
     st.title("🤖 Los 14 Modelos: Por que solo 6 sobreviven")
     st.markdown("""
-    Probamos **14 detectores** diferentes. Un *ablation study* midio cuanto aporta
-    cada uno al resultado final. **8 restaban fiabilidad** → eliminados.
-    Solo quedan los 6 que mejoran el resultado.
+    > **¿Que estas viendo?** Imagina que contratas a 14 detectives para vigilar el agua de Alicante.
+    > Cada uno investiga a su manera: uno compara barrios, otro usa redes neuronales, otro mide
+    > el agua que se pierde por la noche...
+    >
+    > Despues de probar a los 14, descubrimos que **8 de ellos empeoraban el resultado** — daban
+    > tantas falsas alarmas que confundian al equipo. Los despedimos.
+    >
+    > **Solo los 6 mejores se quedan.** Cada uno aporta algo unico, y juntos son mucho mejores
+    > que cualquiera solo. Es como un jurado: si 5 de 6 dicen "culpable", es mas fiable que
+    > si lo dice uno solo.
+    >
+    > El grafico de barras muestra **cuanto mejora** (verde) o empeora (rojo) el resultado
+    > al anadir cada modelo. Solo nos quedamos con los verdes.
     """)
 
     # Model catalog: all 14 models with descriptions
@@ -1142,8 +920,19 @@ elif page == "🤖 Los Modelos":
 elif page == "✅ Fiabilidad":
     st.title("✅ Como sabemos que NO nos lo inventamos")
     st.markdown("""
-    Cada grafico de abajo es una prueba independiente de que las detecciones son reales.
-    No basta con decir "la IA dice que hay anomalia" — hay que **demostrarlo**.
+    > **¿Que estas viendo?** Cualquiera puede decir "la IA ha detectado un problema".
+    > La pregunta importante es: **¿como sabemos que es verdad y no un error?**
+    >
+    > Aqui mostramos **22 pruebas independientes**. Es como en un juicio: no basta con
+    > un testigo — necesitas pruebas fisicas, testimonios, y que todo encaje.
+    >
+    > Las pruebas mas fuertes:
+    > - **Contadores reales**: Comparamos con 4.3 millones de lecturas reales. Coincidimos el 79%.
+    > - **Prediccion del futuro**: Entrenamos con datos hasta 2024 y predijimos 2025 correctamente.
+    > - **Tres fuentes diferentes**: Flujo nocturno + balance hidraulico + contadores. Todas dicen lo mismo.
+    > - **1000 pruebas aleatorias**: Barajamos todo al azar 1000 veces. Ninguna fue tan buena como la real.
+    >
+    > **Si fuera casualidad**, la probabilidad seria de 1 entre 500. No es casualidad.
     """)
 
     # ── KPI Cards ──
@@ -1360,3 +1149,337 @@ elif page == "✅ Fiabilidad":
             st.info(f"**{n_survived}/{len(bh)}** validaciones sobreviven la correccion. Las que sobreviven son ROBUSTAS.")
     except Exception as e:
         st.warning(f"BH correction no disponible: {e}")
+
+# ═══════════════════════════════════════════════════════════════
+# PAGE 8: DATOS EXTERNOS CREATIVOS
+# ═══════════════════════════════════════════════════════════════
+elif page == "🛰️ Datos Externos":
+    st.title("🛰️ Datos Externos — Lo que AMAEM no ha visto en 125 anos")
+
+    st.markdown("""
+    > **¿Que estas viendo?** AMAEM solo tiene datos de sus contadores y tuberias.
+    > Nosotros hemos cruzado esos datos con **4 fuentes publicas** que ellos nunca han usado:
+    >
+    > 1. **Imagenes de satelite** (ESA) — vemos desde el espacio que barrios estan verdes en plena sequia
+    > 2. **Viviendas turisticas** (Generalitat Valenciana) — sabemos donde hay pisos de vacaciones que gastan agua a rafagas
+    > 3. **Renta por barrio** (INE) — distinguimos si un fraude es por necesidad o por codicia
+    > 4. **Edad de edificios** (Catastro) — sabemos si las tuberias internas son de 1960 o de 2020
+    >
+    > **¿Por que importa?** Todos los equipos del hackathon tienen los mismos datos de AMAEM.
+    > La diferencia esta en lo que traemos de fuera. Estos datos permiten **explicar** por que
+    > hay anomalias, no solo detectarlas.
+    """)
+
+    try:
+        from external_data import load_creative_external_data
+        df_creative = load_creative_external_data()
+
+        # Merge con resultados para cruzar anomalias con datos creativos
+        barrio_scores = df.groupby(df["barrio_key"].str.split("__").str[0]).agg(
+            mean_score=("ensemble_score", "mean"),
+            n_alertas=("n_models_detecting", "sum"),
+        ).reset_index()
+        barrio_scores.columns = ["barrio", "mean_score", "n_alertas"]
+        df_merged = df_creative.merge(barrio_scores, on="barrio", how="left").fillna(0)
+
+        # ── 1. NDVI SATELITE ──
+        st.header("🌿 Satelite: Quien riega en plena sequia?")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado imagenes de un **satelite de la Agencia Espacial Europea**
+        > (Sentinel-2) que pasa sobre Alicante cada 5 dias y hace fotos con 10 metros de resolucion.
+        >
+        > De esas fotos calculamos el **NDVI**: un numero que dice lo verde que esta cada zona.
+        > - **Marron** (NDVI ~0) = suelo seco, asfalto, edificios
+        > - **Amarillo** (NDVI ~0.1) = algo de hierba seca
+        > - **Verde claro** (NDVI ~0.2) = cesped, jardines regados
+        > - **Verde oscuro** (NDVI ~0.4+) = arbolado denso, parques bien regados
+        >
+        > **La pregunta clave:** Si un barrio esta MUY verde en agosto (plena sequia)
+        > pero su consumo facturado de agua es BAJO... **¿de donde sale el agua para regar?**
+        > Puede ser un pozo ilegal, un enganche directo a la red, o un contador manipulado.
+        """)
+
+        # Mostrar imagen de satelite real
+        comparison_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_comparison.png")
+        if os.path.exists(comparison_img):
+            st.image(comparison_img, caption="Imagenes REALES de Sentinel-2 (ESA). Izquierda: verano 2024. Derecha: invierno 2024. Las zonas que se mantienen verdes en verano son sospechosas.", use_container_width=True)
+
+        summer_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_summer_2024_map.png")
+        winter_img = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "ndvi_winter_2024_map.png")
+        if os.path.exists(summer_img) and os.path.exists(winter_img):
+            col_s, col_w = st.columns(2)
+            with col_s:
+                st.image(summer_img, caption="Verano 2024 — ¿Quien esta verde en plena sequia?")
+            with col_w:
+                st.image(winter_img, caption="Invierno 2024 — Todo deberia estar mas verde")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_ndvi = px.bar(
+                df_merged.sort_values("ndvi_summer", ascending=False).head(15),
+                x="barrio", y="ndvi_summer",
+                color="mean_score",
+                color_continuous_scale="RdYlGn_r",
+                title="Top 15 barrios mas verdes en verano",
+                labels={"ndvi_summer": "NDVI Verano", "barrio": "Barrio", "mean_score": "Score anomalia"},
+            )
+            fig_ndvi.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_ndvi, use_container_width=True)
+
+        with col2:
+            fig_ndvi_scatter = px.scatter(
+                df_merged.dropna(subset=["ndvi_summer", "mean_score"]),
+                x="ndvi_summer", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="renta_nivel" if "renta_nivel" in df_merged.columns else None,
+                title="Verdor vs Anomalias: quien riega SIN facturar?",
+                labels={"ndvi_summer": "NDVI Verano (verdor)", "mean_score": "Score Anomalia"},
+            )
+            fig_ndvi_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_ndvi_scatter, use_container_width=True)
+
+        st.info("**Lectura rapida:** Los barrios arriba-derecha (verdes + anomalos) son los mas sospechosos "
+                "de riego con agua no facturada. Si un barrio esta verde en agosto sin facturar mucho agua, "
+                "hay que investigar.")
+
+        st.divider()
+
+        # ── 2. VIVIENDAS TURISTICAS ──
+        st.header("🏠 Viviendas Turisticas: Turismo o anomalia real?")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado el **registro oficial de viviendas turisticas**
+        > de la Generalitat Valenciana. Son los pisos de vacaciones tipo Airbnb, pero con
+        > datos del gobierno (no de una web privada).
+        >
+        > **¿Por que importa?** Un piso turistico gasta agua de forma MUY rara: esta vacio
+        > 3 semanas (0 litros), luego llegan turistas y gastan 500 litros en 4 dias, luego
+        > vuelve a 0. Eso PARECE una anomalia, pero **no es fraude ni fuga — es turismo**.
+        >
+        > Si sabemos que barrios tienen muchos pisos turisticos, podemos decir: "la anomalia
+        > en el centro es por turismo, no por fraude". Eso ahorra inspecciones inutiles.
+        >
+        > **Dato real:** Alicante tiene **3,334 viviendas turisticas** registradas con
+        > **14,656 plazas**. El CP 03002 (centro) tiene 781, el mas turistico.
+        """)
+
+        # Cargar datos reales de viviendas turisticas
+        from external_data import load_viviendas_turisticas
+        df_vt = load_viviendas_turisticas()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            fig_vt = px.bar(
+                df_vt.sort_values("n_viviendas", ascending=False).head(15),
+                x="barrio_cp", y="n_viviendas",
+                color="plazas_totales",
+                color_continuous_scale="Reds",
+                title="Viviendas turisticas por codigo postal (datos oficiales)",
+                labels={"n_viviendas": "N viviendas turisticas", "barrio_cp": "Codigo Postal",
+                        "plazas_totales": "Plazas"},
+            )
+            fig_vt.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_vt, use_container_width=True)
+
+        with col2:
+            fig_vt_pie = px.pie(
+                df_vt.nlargest(8, "n_viviendas"),
+                values="n_viviendas", names="barrio_cp",
+                title="Distribucion de pisos turisticos por zona",
+            )
+            st.plotly_chart(fig_vt_pie, use_container_width=True)
+
+        # KPIs
+        total_vt = df_vt["n_viviendas"].sum()
+        total_plazas = df_vt["plazas_totales"].sum()
+        top_cp = df_vt.nlargest(1, "n_viviendas").iloc[0]
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total viviendas turisticas", f"{total_vt:,}")
+        c2.metric("Plazas totales", f"{total_plazas:,.0f}")
+        c3.metric("CP mas turistico", f"{top_cp['barrio_cp']} ({int(top_cp['n_viviendas'])} viv.)")
+
+        st.info("**Lectura rapida:** El CP 03002 (centro historico) concentra la mayor presion turistica. "
+                "Cualquier anomalia de agua en esa zona puede ser simplemente turismo, no fraude. "
+                "Los barrios SIN pisos turisticos pero CON anomalias son los que hay que investigar.")
+
+        st.divider()
+
+        # ── 3. RENTA ──
+        st.header("💰 Renta: Fraude por necesidad o por codicia?")
+        st.markdown("""
+        > **¿Que es esto?** Datos REALES del **Instituto Nacional de Estadistica (INE)** sobre
+        > cuanto dinero gana la gente en cada zona de Alicante. Dato oficial de 2023.
+        >
+        > **¿Por que importa?** No todo el fraude de agua es igual:
+        >
+        > - **Barrio pobre + anomalia** = puede ser una familia que NO PUEDE PAGAR el agua
+        >   y manipula el contador por necesidad. La solucion correcta: **ayuda social**,
+        >   tarifas bonificadas, revision gratuita de instalaciones.
+        >
+        > - **Barrio rico + anomalia** = puede ser un chalet con piscina y jardin que manipula
+        >   el contador para pagar menos. La solucion correcta: **inspeccion y sancion**.
+        >
+        > Esto permite al ayuntamiento **no perseguir a todos por igual**. Es justicia social
+        > aplicada a la gestion del agua.
+        >
+        > **Dato real:** El distrito 01 de Alicante tiene renta media de 20,097 EUR/persona.
+        > El distrito 05 tiene 10,102 EUR. La diferencia es el doble.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            renta_colors = {"muy_baja": "#d32f2f", "baja": "#f57c00", "media": "#fbc02d",
+                            "media_alta": "#7cb342", "alta": "#2e7d32"}
+            fig_renta = px.bar(
+                df_merged.sort_values("renta_media"),
+                x="barrio", y="renta_media",
+                color="renta_nivel",
+                color_discrete_map=renta_colors,
+                title="Renta media por barrio (EUR/persona/ano)",
+                labels={"renta_media": "Renta media (EUR)", "barrio": "Barrio", "renta_nivel": "Nivel"},
+            )
+            fig_renta.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_renta, use_container_width=True)
+
+        with col2:
+            fig_renta_scatter = px.scatter(
+                df_merged.dropna(subset=["renta_media", "mean_score"]),
+                x="renta_media", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="renta_nivel",
+                color_discrete_map=renta_colors,
+                title="Renta vs Anomalias: necesidad o codicia?",
+                labels={"renta_media": "Renta media (EUR)", "mean_score": "Score Anomalia"},
+            )
+            fig_renta_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_renta_scatter, use_container_width=True)
+
+        # Tabla resumen
+        st.subheader("Barrios anomalos por tipo de intervencion")
+        anomalos = df_merged[df_merged["mean_score"] > 0.15].copy()
+        if len(anomalos) > 0:
+            anomalos["intervencion"] = anomalos["renta_nivel"].map({
+                "muy_baja": "🟢 Ayuda social + revision gratuita",
+                "baja": "🟡 Ayuda social + revision",
+                "media": "🟠 Inspeccion estandar",
+                "media_alta": "🔴 Inspeccion prioritaria",
+                "alta": "🔴 Inspeccion + posible sancion",
+            })
+            st.dataframe(
+                anomalos[["barrio", "renta_media", "renta_nivel", "mean_score", "intervencion"]]
+                .sort_values("mean_score", ascending=False),
+                use_container_width=True,
+            )
+        else:
+            st.info("No hay barrios con score > 0.15 para mostrar intervenciones.")
+
+        st.divider()
+
+        # ── 4. CATASTRO — EDAD DE EDIFICIOS ──
+        st.header("🏗️ Catastro: Edificios viejos = tuberias viejas")
+        st.markdown("""
+        > **¿Que es esto?** Hemos descargado datos del **Catastro** (el registro oficial
+        > de todos los edificios de Espana) para saber **en que ano se construyo cada edificio**
+        > del centro de Alicante. Tenemos datos reales de **1,688 edificios**.
+        >
+        > **¿Por que importa?** La empresa de aguas (AMAEM) conoce la edad de SUS tuberias
+        > (las de la calle). Pero NO conoce la edad de las tuberias **dentro de los edificios**
+        > — eso es responsabilidad del propietario.
+        >
+        > Un edificio de 1960 tiene tuberias de plomo o fibrocemento de 1960 (65 anos).
+        > Uno de 2020 tiene PVC moderno. Si un barrio con edificios VIEJOS tiene anomalias,
+        > probablemente son **fugas por tuberias deterioradas**. Si tiene edificios NUEVOS
+        > y anomalias, es mas probable que sea **fraude** (las tuberias no deberian fallar).
+        >
+        > **Dato real:** La mediana de construccion en el centro de Alicante es **1970**.
+        > Eso son tuberias de 55 anos de media.
+        """)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            risk_colors = {"critico": "#d32f2f", "alto": "#f57c00", "medio": "#fbc02d", "bajo": "#4caf50"}
+            fig_age = px.bar(
+                df_merged.sort_values("edad_media", ascending=False).head(15),
+                x="barrio", y="edad_media",
+                color="riesgo_infraestructura",
+                color_discrete_map=risk_colors,
+                title="Top 15 barrios con edificios mas viejos",
+                labels={"edad_media": "Edad media (anos)", "barrio": "Barrio",
+                        "riesgo_infraestructura": "Riesgo"},
+            )
+            fig_age.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_age, use_container_width=True)
+
+        with col2:
+            fig_age_scatter = px.scatter(
+                df_merged.dropna(subset=["edad_media", "mean_score"]),
+                x="edad_media", y="mean_score",
+                text="barrio", size="n_alertas",
+                color="riesgo_infraestructura",
+                color_discrete_map=risk_colors,
+                title="Edad de edificios vs Anomalias: fuga o fraude?",
+                labels={"edad_media": "Edad media edificios (anos)", "mean_score": "Score Anomalia"},
+            )
+            fig_age_scatter.update_traces(textposition="top center", textfont_size=8)
+            st.plotly_chart(fig_age_scatter, use_container_width=True)
+
+        st.info("**Lectura rapida:** Barrios arriba-derecha (viejos + anomalos) probablemente "
+                "tienen **fugas por tuberias deterioradas**. Barrios arriba-izquierda "
+                "(nuevos + anomalos) probablemente tienen **fraude o manipulacion**.")
+
+        st.divider()
+
+        # ── RESUMEN: INDICE COMBINADO ──
+        st.header("🎯 Indice Combinado: donde actuar primero?")
+        st.markdown("""
+        Combinamos las 4 fuentes externas con nuestras anomalias para crear un
+        **indice de prioridad de actuacion** que tiene en cuenta verdor sospechoso,
+        presion turistica, vulnerabilidad economica y edad de la infraestructura.
+        """)
+
+        if "green_wealth_index" in df_merged.columns:
+            # Indice combinado
+            renta_max = df_merged["renta_media"].max() if "renta_media" in df_merged.columns else 1
+            df_merged["priority_index"] = (
+                df_merged["mean_score"] * 0.40 +
+                df_merged["green_wealth_index"].fillna(0) * 0.25 +
+                (1 - df_merged["renta_media"].fillna(renta_max / 2) / renta_max) * 0.15 if "renta_media" in df_merged.columns else 0 +
+                df_merged["edad_media"].fillna(0) / 100 * 0.20
+            )
+
+            top_priority = df_merged.nlargest(10, "priority_index")
+            fig_priority = px.bar(
+                top_priority,
+                x="barrio", y="priority_index",
+                color="riesgo_infraestructura" if "riesgo_infraestructura" in top_priority.columns else None,
+                color_discrete_map=risk_colors if "riesgo_infraestructura" in top_priority.columns else None,
+                title="Top 10 barrios por indice de prioridad combinado",
+                labels={"priority_index": "Indice de prioridad", "barrio": "Barrio"},
+            )
+            fig_priority.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_priority, use_container_width=True)
+
+            st.markdown("""
+            **Como se calcula el indice:**
+            - 40% Score de anomalia (nuestros 6 modelos de IA)
+            - 25% Verdor sospechoso (NDVI satelite x renta = jardines sin facturar?)
+            - 20% Edad de infraestructura (edificios viejos = fugas probables)
+            - 15% Vulnerabilidad economica (renta baja = priorizar ayuda social)
+            """)
+
+        st.divider()
+        st.subheader("📋 Fuentes de datos utilizadas")
+        sources_data = [
+            {"Fuente": "Sentinel-2 (ESA)", "Tipo": "Satelite", "Dato": "Indice NDVI (vegetacion)",
+             "Coste": "Gratis", "Actualizacion": "Cada 5 dias"},
+            {"Fuente": "Generalitat Valenciana", "Tipo": "Registro oficial", "Dato": "3,334 viviendas turisticas con CP y plazas",
+             "Coste": "Gratis", "Actualizacion": "Diaria"},
+            {"Fuente": "INE Atlas Renta", "Tipo": "Estadistica publica", "Dato": "Renta media por seccion censal",
+             "Coste": "Gratis", "Actualizacion": "Anual"},
+            {"Fuente": "Catastro (DGC)", "Tipo": "Registro publico", "Dato": "Ano construccion edificios",
+             "Coste": "Gratis", "Actualizacion": "Semestral"},
+        ]
+        st.dataframe(pd.DataFrame(sources_data), use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error cargando datos creativos: {e}")
+        st.info("Ejecuta primero el pipeline para generar los datos.")
