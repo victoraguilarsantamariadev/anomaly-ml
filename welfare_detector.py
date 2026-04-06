@@ -1118,6 +1118,8 @@ def run_welfare_detection(
     df_monthly: pd.DataFrame,
     results: Optional[pd.DataFrame] = None,
     caudal_path: Optional[str] = None,
+    notify_telegram: bool = False,
+    notify_voice: bool = False,
 ) -> pd.DataFrame:
     """
     AquaCare — Deteccion de emergencias en personas vulnerables.
@@ -1237,6 +1239,20 @@ def run_welfare_detection(
         if n_crit > 0:
             print(f"  *** {n_crit} ALERTAS CRITICAS requieren verificacion presencial ***")
     print(f"  {'=' * 60}")
+
+    # ── Notificaciones (Telegram + Vapi/Twilio) ──────────────────
+    if (notify_telegram or notify_voice) and len(alerts) > 0:
+        try:
+            from notifier import send_welfare_notifications
+            send_welfare_notifications(
+                alerts,
+                notify_telegram=notify_telegram,
+                notify_voice=notify_voice,
+            )
+        except ImportError:
+            print("  ⚠️  notifier.py no encontrado. Notificaciones desactivadas.")
+        except Exception as e:
+            print(f"  ⚠️  Error en notificaciones: {e}")
 
     return alerts
 

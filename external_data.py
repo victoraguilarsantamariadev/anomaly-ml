@@ -531,6 +531,84 @@ def load_creative_external_data() -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────────
+# Catastro Individual — benchmark por vivienda (contrato_id)
+# Fuente: Catastro INSPIRE WFS + IDAE benchmarks (128 L/persona/dia)
+# ─────────────────────────────────────────────────────────────────
+
+_CATASTRO_HOUSEHOLDS_CSV = _os.path.join(
+    _os.path.dirname(__file__), "data", "synthetic_catastro_households.csv"
+)
+
+IDAE_L_PER_PERSON_PER_DAY = 128.0  # media espanola oficial
+
+
+def load_catastro_households() -> pd.DataFrame:
+    """
+    Carga datos de Catastro a nivel de vivienda individual (contrato_id).
+
+    Columnas: contrato_id, barrio, uso, building_m2, construction_year,
+              age_factor, occupancy_estimate, expected_monthly_L,
+              actual_monthly_L, consumption_efficiency_ratio, pipe_risk_score
+
+    Si no existe el CSV sintetico, genera uno con generate_catastro_households().
+    """
+    if _os.path.exists(_CATASTRO_HOUSEHOLDS_CSV):
+        return pd.read_csv(_CATASTRO_HOUSEHOLDS_CSV)
+
+    # Fallback: intentar generar
+    try:
+        from synthetic_external_data import generate_catastro_households
+        return generate_catastro_households(_CATASTRO_HOUSEHOLDS_CSV)
+    except ImportError:
+        return pd.DataFrame()
+
+
+def compute_consumption_benchmark(
+    df_catastro: pd.DataFrame = None,
+    barrio: str = None,
+) -> pd.DataFrame:
+    """
+    Calcula el benchmark de consumo por vivienda cruzando Catastro + IDAE.
+
+    Devuelve tabla con las columnas mas relevantes para el dashboard:
+      contrato_id, barrio, building_m2, construction_year,
+      expected_monthly_L, actual_monthly_L, consumption_efficiency_ratio,
+      pipe_risk_score, anomaly_flag, anomaly_type
+
+    Args:
+        df_catastro: DataFrame de catastro. Si None, carga desde disco.
+        barrio:      Filtrar por barrio (substring match).
+    """
+    if df_catastro is None:
+        df_catastro = load_catastro_households()
+    if df_catastro.empty:
+        return df_catastro
+
+    df = df_catastro.copy()
+
+    if barrio is not None:
+        df = df[df["barrio"].str.contains(str(barrio), case=False, na=False)]
+
+    # Clasificar anomalias por efficiency ratio
+    def _flag(ratio):
+        if ratio > 2.0:
+            return "fuga_grave"
+        elif ratio > 1.5:
+            return "fuga_probable"
+        elif ratio < 0.4:
+            return "fraude_probable"
+        elif ratio < 0.6:
+            return "subregistro"
+        return "normal"
+
+    df["anomaly_flag"] = df["consumption_efficiency_ratio"] > 1.5
+    df["anomaly_flag"] = df["anomaly_flag"] | (df["consumption_efficiency_ratio"] < 0.5)
+    df["anomaly_type"] = df["consumption_efficiency_ratio"].apply(_flag)
+
+    return df.sort_values("consumption_efficiency_ratio", ascending=False).reset_index(drop=True)
+
+
+# ─────────────────────────────────────────────────────────────────
 # Demo
 # ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":

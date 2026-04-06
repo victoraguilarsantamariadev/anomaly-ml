@@ -1517,6 +1517,10 @@ def main():
                         help="IQR multiplier for fences (default: 3.0, tuned)")
     parser.add_argument("--min-deviation", type=float, default=0.10,
                         help="M5 minimum practical deviation to flag (default: 0.10 = 10%%)")
+    parser.add_argument("--notify-telegram", action="store_true", default=False,
+                        help="Enviar alertas AquaCare por Telegram (requiere .env con TELEGRAM_BOT_TOKEN)")
+    parser.add_argument("--notify-voice", action="store_true", default=False,
+                        help="Realizar llamadas de voz para alertas CRITICO/ALTO (requiere Vapi o Twilio en .env)")
     args = parser.parse_args()
 
     # Auto-cargar parámetros tuneados si existen (no hardcodear nada)
@@ -1890,7 +1894,9 @@ def main():
         try:
             welfare_alerts = run_welfare_detection(
                 _df_welfare, results=results,
-                caudal_path=caudal_path if Path(caudal_path).exists() else None
+                caudal_path=caudal_path if Path(caudal_path).exists() else None,
+                notify_telegram=args.notify_telegram,
+                notify_voice=args.notify_voice,
             )
             welfare_summary(welfare_alerts)
 

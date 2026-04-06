@@ -1,0 +1,9 @@
+Barrio,Tipo,Z-Score,YoY,M2 IsolFor,M5b IQR,M8 ANR,M9 NMF,M13 AE,M14 VAE,InSAR,Thermal,Airbnb,Piezometry,Elec/H2O,VEREDICTO
+34-COLONIA REQUENA,fuga_fisica,0.8,0.98,❌,❌,✅,✅,❌,❌,✅,✅,ℹ️ 0.02,❌,❌,✅ CUBIERTO
+32-VIRGEN DEL REMEDIO,fraude,1.7,1.03,✅,❌,❌,❌,❌,✅,❌,❌,ℹ️ 0.03,❌,✅,✅ CUBIERTO
+17-CAROLINAS ALTAS,fuga_silenciosa,2.0,1.51,✅,✅,❌,❌,✅,✅,❌,❌,ℹ️ 0.02,❌,❌,✅ CUBIERTO
+3-CENTRO,turismo,2.4,0.99,⚠️,ℹ️,ℹ️,ℹ️,ℹ️,⚠️,ℹ️,ℹ️,✅ 0.53,ℹ️,ℹ️,✅ NO FLAGGED (correcto)
+41-PLAYA DE SAN JUAN,estacionalidad,4.3,0.88,⚠️,ℹ️,ℹ️,ℹ️,ℹ️,⚠️,ℹ️,ℹ️,✅ 0.76,⚠️,ℹ️,✅ NO FLAGGED (correcto)
+56-DISPERSOS,enganche_ilegal,2.1,1.05,✅,❌,✅,❌,❌,✅,❌,❌,ℹ️ 0.01,❌,✅,✅ CUBIERTO
+TABARCA,contador_roto,2.6,0.01,✅,✅,✅,❌,❌,✅,❌,❌,ℹ️ 0.06,❌,✅,✅ CUBIERTO
+35-VIRGEN DEL CARMEN,reparacion,0.8,0.80,❌,❌,❌,✅,✅,❌,❌,✅,ℹ️ 0.01,✅,❌,✅ CUBIERTO
