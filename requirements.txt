@@ -11,3 +11,8 @@ httpx==0.27.2
 chronos-forecasting
 torch
 requests>=2.31.0
+lifelines>=0.28.0
+umap-learn>=0.5.5
+plotly>=5.18.0
+streamlit>=1.30.0
+ruptures>=1.1.9

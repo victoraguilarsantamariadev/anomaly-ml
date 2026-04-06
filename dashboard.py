@@ -824,6 +824,79 @@ with tab2:
             display_df = display_df.rename(columns={c: col_rename.get(c, c) for c in cols_avail})
             st.dataframe(display_df, use_container_width=True)
 
+    # ── Advanced Analytics: 5 tecnicas quant-grade ────────────────────
+    with st.expander("🧠 Advanced Analytics — Quant-Grade Detection (5 tecnicas)"):
+        st.markdown("""
+        > **5 tecnicas avanzadas** aplicadas a datos horarios individuales:
+        > Spectral FFT, Autoencoder + UMAP, Survival Cox, BOCPD Changepoints, Factor Model.
+        """)
+
+        @st.cache_data
+        def _load_advanced_results():
+            try:
+                from advanced_household_analytics import run_all_advanced
+                return run_all_advanced()
+            except Exception as e:
+                return pd.DataFrame(), {}
+
+        adv_combined, adv_figures = _load_advanced_results()
+
+        if not adv_combined.empty:
+            adv_t1, adv_t2, adv_t3, adv_t4, adv_t5 = st.tabs([
+                "📊 Spectral FFT", "🧬 Autoencoder UMAP", "⏳ Survival Cox",
+                "📍 Changepoint BOCPD", "📐 Factor Model",
+            ])
+
+            with adv_t1:
+                st.markdown("**Spectral Entropy**: alta entropia = espectro plano = fuga (consumo constante)")
+                if "spectral_entropy_ranking" in adv_figures:
+                    st.plotly_chart(adv_figures["spectral_entropy_ranking"], use_container_width=True)
+                if "spectral_spectrogram_top" in adv_figures:
+                    st.plotly_chart(adv_figures["spectral_spectrogram_top"], use_container_width=True)
+
+            with adv_t2:
+                st.markdown("**Autoencoder**: perfiles 24h normalizados → espacio latente → UMAP 2D")
+                if "ae_umap_scatter" in adv_figures:
+                    st.plotly_chart(adv_figures["ae_umap_scatter"], use_container_width=True)
+                if "ae_archetype_profiles" in adv_figures:
+                    st.plotly_chart(adv_figures["ae_archetype_profiles"], use_container_width=True)
+
+            with adv_t3:
+                st.markdown("**Cox PH**: P(fuga en 60 dias) segun edad edificio, m2, pipe risk, edad titular")
+                if "survival_hazard_ratios" in adv_figures:
+                    st.plotly_chart(adv_figures["survival_hazard_ratios"], use_container_width=True)
+                if "survival_kaplan_meier" in adv_figures:
+                    st.plotly_chart(adv_figures["survival_kaplan_meier"], use_container_width=True)
+
+            with adv_t4:
+                st.markdown("**BOCPD**: detecta el momento exacto (hora) del cambio de regimen de consumo")
+                if "cp_changepoint_timeline" in adv_figures:
+                    st.plotly_chart(adv_figures["cp_changepoint_timeline"], use_container_width=True)
+
+            with adv_t5:
+                st.markdown("**Factor Model**: E[consumo] = f(hora, dia, m2, personas). Residual = anomalia")
+                if "factor_residual_heatmap" in adv_figures:
+                    st.plotly_chart(adv_figures["factor_residual_heatmap"], use_container_width=True)
+                if "factor_peer_ranking" in adv_figures:
+                    st.plotly_chart(adv_figures["factor_peer_ranking"], use_container_width=True)
+                if "factor_factor_decomposition" in adv_figures:
+                    st.plotly_chart(adv_figures["factor_factor_decomposition"], use_container_width=True)
+
+            # Tabla resumen
+            st.markdown("---")
+            st.markdown("**Top 15 viviendas por score combinado avanzado:**")
+            show_cols = ["contrato_id"]
+            if "combined_advanced_score" in adv_combined.columns:
+                show_cols.append("combined_advanced_score")
+            if "n_techniques_flagging" in adv_combined.columns:
+                show_cols.append("n_techniques_flagging")
+            for c in ["spectral_anomaly_score", "ae_anomaly_score", "factor_anomaly_score"]:
+                if c in adv_combined.columns:
+                    show_cols.append(c)
+            st.dataframe(adv_combined[show_cols].head(15), use_container_width=True)
+        else:
+            st.info("Ejecuta `python advanced_household_analytics.py` para generar resultados.")
+
 
 # ═══════════════════════════════════════════════════════════════
 # TAB 3: AQUACARE — Deteccion individual de personas vulnerables
@@ -1036,47 +1109,64 @@ with tab3:
         with c1:
             if st.button("📲 Enviar Demo Telegram", type="primary"):
                 try:
-                    from notifier import send_telegram_alert
                     from dotenv import load_dotenv
-                    load_dotenv()
+                    load_dotenv(override=True)
+                    from notifier import escalate_alert, send_telegram_alert
                     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
                     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
                     if token and chat_id:
-                        # Usar datos de la ficha seleccionada si existe
                         if len(ac_elderly) > 0:
                             f = ac_elderly.iloc[0]
+                            nivel = f.get("nivel_aquacare", "CRITICO")
+                            desc = (
+                                f"{f['contrato_id']} | {f['nombre_titular']}, "
+                                f"{int(f['edad_titular'])} anos, "
+                                f"{'vive sola' if f.get('sexo','F')=='F' else 'vive solo'}\n"
+                                f"{f.get('direccion_sintetica', '')}\n"
+                                f"{f['tipo_sospecha'].replace('_',' ').title()} "
+                                f"(score {f['anomaly_score']:.2f})"
+                            )
                             demo_alert = pd.Series({
                                 "barrio": f["barrio"],
-                                "nivel_alerta": f["nivel_aquacare"],
-                                "anomaly_description": (
-                                    f"{f['contrato_id']} | {f['nombre_titular']}, "
-                                    f"{int(f['edad_titular'])} anos, "
-                                    f"{'vive sola' if f.get('sexo','F')=='F' else 'vive solo'}\n"
-                                    f"{f.get('direccion_sintetica', '')}\n"
-                                    f"{f['tipo_sospecha'].replace('_',' ').title()} "
-                                    f"(score {f['anomaly_score']:.2f})"
-                                ),
+                                "nivel": nivel,
+                                "nivel_alerta": nivel,
+                                "anomaly_description": desc,
+                                "drop_pct": 47.3,
+                                "elderly_vulnerability": 0.78,
+                                "consecutive_decline_months": 4,
+                                "confidence": 0.91,
                                 "pct_elderly_65plus": f["edad_titular"],
                                 "pct_elderly_alone": 100 if f.get("vive_solo") else 0,
-                                "n_models_detecting": 4,
-                                "total_models": 6,
-                                "months_declining": 2,
-                                "consumption_change_pct": -15.0,
+                                "other_models_confirming": 4,
                             })
                         else:
+                            nivel = "CRITICO"
                             demo_alert = pd.Series({
-                                "barrio": "CAROLINAS ALTAS (DEMO)",
-                                "nivel_alerta": "CRITICO",
+                                "barrio": "17-CAROLINAS ALTAS",
+                                "nivel": nivel,
+                                "nivel_alerta": nivel,
                                 "anomaly_description": "Fuga silenciosa en vivienda vulnerable",
+                                "drop_pct": 47.3,
+                                "elderly_vulnerability": 0.78,
+                                "consecutive_decline_months": 4,
+                                "confidence": 0.91,
                                 "pct_elderly_65plus": 78,
                                 "pct_elderly_alone": 100,
-                                "n_models_detecting": 4,
-                                "total_models": 6,
-                                "months_declining": 3,
-                                "consumption_change_pct": -22.0,
+                                "other_models_confirming": 4,
                             })
-                        send_telegram_alert(demo_alert, token, chat_id)
-                        st.success("Mensaje enviado a Telegram!")
+                        # Escalado completo: Telegram + llamada si CRITICO/ALTO
+                        result = escalate_alert(demo_alert, notify_telegram=True, notify_voice=True)
+                        steps = result.get("steps", [])
+                        tg_ok = any(s.get("action") == "telegram" and s.get("success") for s in steps)
+                        call_ok = any(s.get("action") == "voice_call_primary" and s.get("call_id") for s in steps)
+                        msg = ""
+                        if tg_ok:
+                            msg += "Telegram enviado. "
+                        if call_ok:
+                            msg += "Llamada Vapi iniciada."
+                        elif nivel in ("CRITICO", "ALTO"):
+                            msg += "Llamada no disponible (revisa config Vapi)."
+                        st.success(msg if msg else "Escalado completado")
                     else:
                         st.warning("Configura TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en .env")
                 except Exception as e:

@@ -40,9 +40,21 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 
-# Force UTF-8 output on Windows (emojis en mensajes Telegram)
-if sys.platform == "win32":
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+# Safe print that handles emojis on Windows (including inside Streamlit)
+_original_print = print
+def print(*args, **kwargs):
+    try:
+        _original_print(*args, **kwargs)
+    except (UnicodeEncodeError, OSError, ValueError):
+        # Fallback: strip non-ASCII characters
+        safe_args = []
+        for a in args:
+            s = str(a)
+            safe_args.append(s.encode("ascii", errors="replace").decode("ascii"))
+        try:
+            _original_print(*safe_args, **kwargs)
+        except Exception:
+            pass  # Streamlit closed stdout — silently ignore
 
 load_dotenv()
 
