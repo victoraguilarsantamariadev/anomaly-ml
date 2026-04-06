@@ -11,3 +11,4 @@ streamlit-folium>=0.15.0
 lifelines>=0.28.0
 umap-learn>=0.5.5
 ruptures>=1.1.9
+pyproj>=3.6.0
