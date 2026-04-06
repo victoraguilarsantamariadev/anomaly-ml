@@ -72,20 +72,43 @@ ESCALATION_WAIT = int(os.getenv("ESCALATION_WAIT_SECONDS", "300"))
 
 def _format_telegram_message(alert: pd.Series) -> str:
     """Formatea el mensaje Telegram con HTML. Visual, impactante, accionable."""
+
+    # ── Alerta individual de vivienda (desde AquaCare tab) ───────────────────
+    if "anomaly_description" in alert.index or "nivel_alerta" in alert.index:
+        nivel = alert.get("nivel_alerta", alert.get("nivel", "CRITICO"))
+        nivel_emoji = {"CRITICO": "🚨", "ALTO": "🔶", "VIGILANCIA": "🟡"}.get(nivel, "ℹ️")
+        nivel_color = {"CRITICO": "🔴", "ALTO": "🟠", "VIGILANCIA": "🟡"}.get(nivel, "⚪")
+        desc = alert.get("anomaly_description", "")
+        action = {
+            "CRITICO":    "🔴 <b>VERIFICACIÓN PRESENCIAL INMEDIATA</b>",
+            "ALTO":       "🟠 Contactar titular y revisar contador",
+            "VIGILANCIA": "🟡 Monitoreo estrecho — revisar próximo mes",
+        }.get(nivel, "Revisión estándar")
+        return (
+            f"{nivel_emoji} <b>ALERTA AQUACARE — AquaGuard AI</b>\n"
+            f"\n"
+            f"🏠 <b>Vivienda individual detectada</b>\n"
+            f"{nivel_color} <b>Nivel:</b> {nivel}\n"
+            f"\n"
+            f"<pre>{desc}</pre>\n"
+            f"\n"
+            f"→ {action}\n"
+            f"\n"
+            f"<i>AquaGuard AI · AMAEM</i>"
+        )
+
+    # ── Alerta de barrio (pipeline mensual) ──────────────────────────────────
     nivel = alert.get("nivel", "VIGILANCIA")
     barrio = alert.get("barrio", "N/A")
     drop_pct = alert.get("drop_pct", 0)
-    vuln = alert.get("elderly_vulnerability", 0)
     streak = alert.get("consecutive_decline_months", 0)
     confidence = alert.get("confidence", 0)
     mensaje = alert.get("mensaje", "")
     other_models = alert.get("other_models_confirming", 0)
 
-    # Emojis según nivel
     nivel_emoji = {"CRITICO": "🚨", "ALTO": "🔶", "VIGILANCIA": "🟡"}.get(nivel, "ℹ️")
     nivel_color = {"CRITICO": "🔴", "ALTO": "🟠", "VIGILANCIA": "🟡"}.get(nivel, "⚪")
 
-    # Contexto demográfico (si disponible)
     pct_elderly = alert.get("pct_elderly_65plus", None)
     pct_alone = alert.get("pct_elderly_alone", None)
 
@@ -105,7 +128,7 @@ def _format_telegram_message(alert: pd.Series) -> str:
         "VIGILANCIA": "🟡 Monitoreo estrecho — revisar próximo mes",
     }.get(nivel, "Revisión estándar")
 
-    msg = (
+    return (
         f"{nivel_emoji} <b>ALERTA AQUACARE — AquaGuard AI</b>\n"
         f"\n"
         f"📍 <b>Barrio:</b> {barrio}\n"
@@ -121,7 +144,6 @@ def _format_telegram_message(alert: pd.Series) -> str:
         f"\n"
         f"<i>AquaGuard AI · AMAEM · Confianza: {confidence:.0%}</i>"
     )
-    return msg
 
 
 def send_telegram_alert(alert: pd.Series,
@@ -519,21 +541,20 @@ if __name__ == "__main__":
     print("  TEST — Sistema de Notificaciones AquaCare")
     print("=" * 60)
 
-    # Crear alerta de prueba
+    # Crear alerta de prueba — vivienda individual
     test_alert = pd.Series({
         "barrio": "17-CAROLINAS ALTAS",
-        "nivel": "CRITICO",
-        "drop_pct": 47.3,
-        "elderly_vulnerability": 0.78,
-        "consecutive_decline_months": 4,
-        "confidence": 0.91,
-        "pct_elderly_65plus": 35.0,
-        "pct_elderly_alone": 42.8,
-        "other_models_confirming": 3,
-        "mensaje": "Fuga silenciosa detectada. Consumo ha caído un 47% en 4 meses consecutivos.",
+        "nivel_alerta": "CRITICO",
+        "anomaly_description": (
+            "CTR-17-00070 | Maria Garcia Lopez, 78 anos, vive sola\n"
+            "C/ Azorin 14, 2o B | Edificio 1972, 68m2\n"
+            "Fuga silenciosa (score 0.82) | Consumo 1.7x esperado"
+        ),
+        "pct_elderly_65plus": 78,
+        "pct_elderly_alone": 100,
     })
 
-    print(f"\nAlerta de prueba: [{test_alert['nivel']}] {test_alert['barrio']}")
+    print(f"\nAlerta de prueba: [{test_alert['nivel_alerta']}] CTR-17-00070 | Maria Garcia Lopez")
     print("\nMensaje Telegram formateado:")
     print("-" * 60)
     msg = _format_telegram_message(test_alert)
