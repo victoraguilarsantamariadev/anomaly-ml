@@ -1,16 +1,18 @@
 """
 synthetic_external_data.py
-Genera 5 datasets sintéticos de fuentes externas open-source para demostrar
-que el pipeline detecta anomalías con señales físicas del mundo real.
+Genera datasets sinteticos de fuentes externas open-source para demostrar
+que el pipeline detecta anomalias con senales fisicas del mundo real.
 
 Fuentes reales equivalentes:
   1. InSAR Subsidencia  -> Copernicus EGMS (egms.land.copernicus.eu)
   2. Landsat Thermal    -> USGS EarthExplorer / NASA ECOSTRESS
   3. Airbnb Density     -> Inside Airbnb (insideairbnb.com)
-  4. IGME Piezometría   -> IGME-SINAS (info.igme.es/BDAguas)
+  4. IGME Piezometria   -> IGME-SINAS (info.igme.es/BDAguas)
   5. Electricidad/Agua  -> REE (ree.es) + AMAEM ratio
+  6. Catastro Vivienda  -> DGC Catastro INSPIRE WFS + IDAE
+  7. Perfiles Hogar     -> Padron Municipal (anonimizado)
 
-Cada dataset tiene anomalías inyectadas en los barrios correspondientes.
+Cada dataset tiene anomalias inyectadas en los barrios correspondientes.
 """
 
 import os
@@ -651,7 +653,186 @@ def generate_catastro_households(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# MAIN — Genera los 5 datasets
+# DATASET 7: Perfiles Demograficos Individuales (Padron Municipal)
+# Fuente real: Padron Municipal de Alicante (datos anonimizados)
+# Granularidad: por contrato_id (titular de la vivienda)
+# ═══════════════════════════════════════════════════════════════════
+
+# Nombres espanoles sinteticos (pool realista)
+_NOMBRES_M = [
+    "Maria Garcia Lopez", "Carmen Martinez Perez", "Josefa Fernandez Sanchez",
+    "Ana Lopez Gonzalez", "Pilar Ruiz Diaz", "Teresa Moreno Jimenez",
+    "Rosa Alvarez Hernandez", "Dolores Romero Torres", "Concepcion Navarro Dominguez",
+    "Francisca Gutierrez Vazquez", "Isabel Serrano Ramos", "Mercedes Muñoz Flores",
+    "Manuela Blanco Molina", "Antonia Suarez Ortega", "Luisa Castro Delgado",
+    "Encarnacion Gil Rubio", "Amparo Medina Castillo", "Emilia Ortiz Marin",
+    "Consuelo Herrera Iglesias", "Aurora Garrido Santos",
+]
+_NOMBRES_H = [
+    "Jose Garcia Lopez", "Antonio Martinez Perez", "Manuel Fernandez Sanchez",
+    "Francisco Lopez Gonzalez", "Juan Ruiz Diaz", "Pedro Moreno Jimenez",
+    "Miguel Alvarez Hernandez", "Angel Romero Torres", "Rafael Navarro Dominguez",
+    "Ramon Gutierrez Vazquez", "Carlos Serrano Ramos", "Fernando Muñoz Flores",
+    "Luis Blanco Molina", "Joaquin Suarez Ortega", "Andres Castro Delgado",
+    "Salvador Gil Rubio", "Enrique Medina Castillo", "Emilio Ortiz Marin",
+    "Vicente Herrera Iglesias", "Alejandro Garrido Santos",
+]
+
+# Calles reales por barrio en Alicante
+_CALLES_POR_BARRIO = {
+    "CAROLINAS ALTAS": ["C/ Azorin", "C/ Pintor Murillo", "C/ San Isidro", "C/ Doctor Just"],
+    "CAROLINAS BAJAS": ["C/ Italia", "C/ Reyes Catolicos", "C/ Garbinet", "C/ Padre Mariana"],
+    "CASCO ANTIGUO":   ["C/ Mayor", "C/ Labradores", "C/ San Rafael", "C/ Maldonado"],
+    "CENTRO TRADICIONAL": ["C/ San Fernando", "C/ Gerona", "C/ Castaños", "C/ Bazán"],
+    "BENALUA":         ["C/ Arquitecto Morell", "C/ Churruca", "C/ Isabel la Católica"],
+    "ALIPARK":         ["C/ Deportista Moro", "Av. Locutor Vicente Hipólito", "C/ Poeta Zorrilla"],
+    "ALTOZANO":        ["C/ Teniente Alvarez Soto", "C/ Bono Guarner", "C/ Alfonso el Sabio"],
+    "SAN GABRIEL":     ["C/ Ingeniero Canales", "C/ Virgen del Socorro", "C/ Jaime I"],
+    "CIUDAD DE ASIS":  ["C/ Rio Turia", "C/ Rio Segura", "C/ Rio Jucar", "C/ Rio Mundo"],
+    "POLIGONO BABEL":  ["C/ Peru", "C/ Chile", "C/ Ecuador", "C/ Uruguay"],
+    "ENSANCHE DIPUTACION": ["C/ Foglietti", "C/ Doctor Gadea", "Av. Alfonso el Sabio"],
+    "PLA DEL BON REPOS": ["C/ Virgen de la Cabeza", "C/ Escritor Azorin"],
+    "GARBINET":        ["C/ Jose Maria Py", "C/ Catedratico Soler", "C/ Alcalde Suárez Llanos"],
+    "POLIGONO SAN BLAS": ["C/ Vistahermosa", "C/ Rio Manzanares", "C/ Escritor Azorín"],
+    "FLORIDA BAJA":    ["C/ Canalejas", "C/ Poeta Vila y Blanco", "C/ Garcia Morato"],
+}
+
+# Barrios con mas poblacion elderly (Padron real de Alicante 2025)
+_BARRIOS_ELDERLY = {
+    "CAROLINAS ALTAS":   0.30,  # 30% probabilidad de titular >70 anos
+    "CAROLINAS BAJAS":   0.28,
+    "CASCO ANTIGUO":     0.25,
+    "CENTRO TRADICIONAL": 0.22,
+    "BENALUA":           0.20,
+    "PLA DEL BON REPOS": 0.18,
+    "ALTOZANO":          0.18,
+}
+
+
+def generate_household_profiles(
+    output_path: str = "data/synthetic_household_profiles.csv",
+    hourly_csv: str = "data/synthetic_hourly_domicilio.csv",
+) -> pd.DataFrame:
+    """
+    Genera perfiles demograficos sinteticos por contrato_id.
+
+    Columnas: contrato_id, barrio, nombre_titular, edad_titular, sexo,
+              vive_solo, n_personas_hogar, telefono_contacto, direccion_sintetica
+
+    Inyecta titulares mayores/vulnerables en contratos que:
+      a) tienen fuga detectada (leak_labels)
+      b) estan en barrios con alta poblacion elderly
+
+    Fuente real equivalente: Padron Municipal (datos proteccion datos, anonimizados)
+    """
+    rng = np.random.RandomState(77)
+
+    # Cargar contratos unicos del hourly data
+    hourly_path = Path(hourly_csv)
+    if not hourly_path.exists():
+        return pd.DataFrame()
+
+    df_h = pd.read_csv(hourly_path, usecols=["contrato_id", "barrio", "uso"])
+    contratos = df_h.drop_duplicates("contrato_id")[["contrato_id", "barrio", "uso"]]
+
+    # Cargar leak labels para saber que contratos tienen fuga
+    leak_path = hourly_path.parent / "synthetic_leak_labels.csv"
+    leak_ids = set()
+    if leak_path.exists():
+        labels = pd.read_csv(leak_path)
+        leak_ids = set(labels["contrato_id"])
+
+    # Casos criticos forzados (elderly + fuga + vive solo)
+    FORCED_ELDERLY = {
+        "CTR-17-00070": ("Maria Garcia Lopez", 78, "F", True, "C/ Azorin 14, 2o B"),
+        "CTR-18-00185": ("Antonio Navarro Dominguez", 82, "M", True, "C/ Italia 23, 3o A"),
+        "CTR-18-00112": ("Josefa Fernandez Sanchez", 75, "F", True, "C/ Reyes Catolicos 8, 1o D"),
+        "CTR-22-00117": ("Manuel Romero Torres", 80, "M", True, "C/ Teniente Alvarez Soto 5, 4o C"),
+        "CTR-14-00161": ("Carmen Martinez Perez", 73, "F", True, "C/ Foglietti 11, 5o A"),
+        "CTR-23-00098": ("Rosa Alvarez Hernandez", 77, "F", True, "C/ Mayor 31, 2o B"),
+        "CTR-24-00077": ("Francisco Lopez Gonzalez", 84, "M", True, "C/ Labradores 7, 1o A"),
+    }
+
+    rows = []
+    for _, row in contratos.iterrows():
+        cid = row["contrato_id"]
+        barrio = row["barrio"]
+        uso = row["uso"]
+
+        # Extraer nombre limpio del barrio
+        barrio_clean = barrio.split("-", 1)[1].strip() if "-" in barrio else barrio
+
+        # Caso forzado
+        if cid in FORCED_ELDERLY:
+            nombre, edad, sexo, solo, direccion = FORCED_ELDERLY[cid]
+            n_personas = 1 if solo else rng.randint(2, 4)
+            tel = f"+34 6{rng.randint(10, 99):02d} {rng.randint(100, 999):03d} {rng.randint(100, 999):03d}"
+            rows.append({
+                "contrato_id": cid, "barrio": barrio,
+                "nombre_titular": nombre, "edad_titular": edad, "sexo": sexo,
+                "vive_solo": solo, "n_personas_hogar": n_personas,
+                "telefono_contacto": tel, "direccion_sintetica": direccion,
+            })
+            continue
+
+        # Generar perfil aleatorio
+        sexo = rng.choice(["M", "F"])
+        nombre = rng.choice(_NOMBRES_H if sexo == "M" else _NOMBRES_M)
+
+        # Edad: segun barrio + si tiene fuga = mas probable elderly
+        elderly_prob = _BARRIOS_ELDERLY.get(barrio_clean, 0.10)
+        if cid in leak_ids:
+            elderly_prob = min(elderly_prob + 0.25, 0.60)
+
+        if rng.random() < elderly_prob:
+            edad = int(rng.randint(68, 92))
+        elif uso == "COMERCIAL":
+            edad = int(rng.randint(30, 55))
+        else:
+            edad = int(rng.randint(25, 70))
+
+        # Vive solo: mas probable si elderly
+        if edad >= 70:
+            vive_solo = bool(rng.random() < 0.55)
+        elif edad >= 60:
+            vive_solo = bool(rng.random() < 0.25)
+        else:
+            vive_solo = bool(rng.random() < 0.10)
+
+        n_personas = 1 if vive_solo else int(rng.randint(2, 5))
+
+        # Direccion sintetica
+        calles = _CALLES_POR_BARRIO.get(barrio_clean, ["C/ Principal"])
+        calle = rng.choice(calles)
+        num = rng.randint(1, 45)
+        piso = rng.randint(1, 6)
+        letra = rng.choice(["A", "B", "C", "D"])
+        direccion = f"{calle} {num}, {piso}o {letra}"
+
+        # Telefono
+        tel = f"+34 6{rng.randint(10, 99):02d} {rng.randint(100, 999):03d} {rng.randint(100, 999):03d}"
+
+        rows.append({
+            "contrato_id": cid, "barrio": barrio,
+            "nombre_titular": nombre, "edad_titular": edad, "sexo": sexo,
+            "vive_solo": vive_solo, "n_personas_hogar": n_personas,
+            "telefono_contacto": tel, "direccion_sintetica": direccion,
+        })
+
+    df = pd.DataFrame(rows)
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    df.to_csv(output_path, index=False)
+
+    n_elderly = (df["edad_titular"] >= 65).sum()
+    n_solo = df["vive_solo"].sum()
+    n_elderly_solo = ((df["edad_titular"] >= 65) & (df["vive_solo"])).sum()
+    print(f"  [Perfiles] {len(df)} viviendas, {n_elderly} titulares >65 anos, "
+          f"{n_solo} viven solos, {n_elderly_solo} mayores solos -> {output_path}")
+    return df
+
+
+# ═══════════════════════════════════════════════════════════════════
+# MAIN — Genera todos los datasets
 # ═══════════════════════════════════════════════════════════════════
 def generate_all_external_data(output_dir: str = "data") -> dict:
     """Genera los 5 datasets de fuentes externas sintéticas."""
@@ -680,6 +861,9 @@ def generate_all_external_data(output_dir: str = "data") -> dict:
                            os.path.join(output_dir, "synthetic_electricity_water_ratio.csv")),
         "catastro":    generate_catastro_households(
                            os.path.join(output_dir, "synthetic_catastro_households.csv"),
+                           os.path.join(output_dir, "synthetic_hourly_domicilio.csv")),
+        "profiles":    generate_household_profiles(
+                           os.path.join(output_dir, "synthetic_household_profiles.csv"),
                            os.path.join(output_dir, "synthetic_hourly_domicilio.csv")),
     }
 

@@ -609,6 +609,34 @@ def compute_consumption_benchmark(
 
 
 # ─────────────────────────────────────────────────────────────────
+# Perfiles Demograficos Individuales (Padron Municipal)
+# ─────────────────────────────────────────────────────────────────
+
+_HOUSEHOLD_PROFILES_CSV = _os.path.join(
+    _os.path.dirname(__file__), "data", "synthetic_household_profiles.csv"
+)
+
+
+def load_household_profiles() -> pd.DataFrame:
+    """
+    Carga perfiles demograficos individuales por contrato_id.
+
+    Columnas: contrato_id, barrio, nombre_titular, edad_titular, sexo,
+              vive_solo, n_personas_hogar, telefono_contacto, direccion_sintetica
+
+    Si no existe el CSV sintetico, intenta generarlo.
+    """
+    if _os.path.exists(_HOUSEHOLD_PROFILES_CSV):
+        return pd.read_csv(_HOUSEHOLD_PROFILES_CSV)
+
+    try:
+        from synthetic_external_data import generate_household_profiles
+        return generate_household_profiles(_HOUSEHOLD_PROFILES_CSV)
+    except ImportError:
+        return pd.DataFrame()
+
+
+# ─────────────────────────────────────────────────────────────────
 # Demo
 # ─────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
