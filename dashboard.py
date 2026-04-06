@@ -363,6 +363,154 @@ with tab1:
 
             df.drop(columns=["_barrio_clean"], inplace=True, errors="ignore")
 
+    # ── Fuentes Externas Open Source ──
+    st.markdown("---")
+    st.subheader("🛰️ Fuentes Externas Open Source — Lo que AMAEM no ha cruzado en 125 anos")
+    st.markdown(
+        "> Cruzamos los datos de contadores con **6 fuentes publicas gratuitas** "
+        "que revelan senales fisicas y socioeconomicas invisibles para los contadores."
+    )
+
+    ext_col1, ext_col2, ext_col3 = st.columns(3)
+
+    # ── 1. InSAR Subsidencia ──
+    with ext_col1:
+        st.markdown("##### 📡 InSAR — Subsidencia del Terreno")
+        st.caption("Fuente: Copernicus EGMS (satelite Sentinel-1)")
+        insar_path = os.path.join(DATA_DIR, "synthetic_insar_subsidence.csv")
+        if os.path.exists(insar_path):
+            df_insar = pd.read_csv(insar_path)
+            n_anom = int(df_insar["insar_anomaly_flag"].sum())
+            st.markdown(
+                f"Mide hundimiento del suelo con precision milimetrica. "
+                f"Una fuga subterranea erosiona el terreno.\n\n"
+                f"**{len(df_insar)} barrios** analizados, **{n_anom}** con subsidencia anomala"
+            )
+            top_sub = df_insar.nsmallest(5, "subsidence_mm_yr")[["barrio", "subsidence_mm_yr", "insar_anomaly_flag"]]
+            top_sub.columns = ["Barrio", "mm/ano", "Anomalo"]
+            st.dataframe(top_sub, use_container_width=True, hide_index=True)
+
+    # ── 2. Landsat Thermal ──
+    with ext_col2:
+        st.markdown("##### 🌡️ Landsat Thermal — Cold Spots")
+        st.caption("Fuente: NASA ECOSTRESS / Landsat 8 Band 10")
+        thermal_path = os.path.join(DATA_DIR, "synthetic_thermal_anomaly.csv")
+        if os.path.exists(thermal_path):
+            df_therm = pd.read_csv(thermal_path)
+            n_cold = int(df_therm["thermal_leak_flag"].sum())
+            st.markdown(
+                f"El agua de una fuga enfria el suelo. En verano mediterraneo, "
+                f"una zona fria anomala en asfalto = agua subterranea.\n\n"
+                f"**{n_cold} cold spots** detectados en {df_therm['barrio'].nunique()} barrios"
+            )
+            cold = df_therm[df_therm["thermal_leak_flag"] == True]
+            if not cold.empty:
+                top_cold = cold.groupby("barrio")["thermal_coldspot_zscore"].min().nsmallest(5).reset_index()
+                top_cold.columns = ["Barrio", "Z-Score (frio)"]
+                st.dataframe(top_cold, use_container_width=True, hide_index=True)
+
+    # ── 3. Airbnb / Turismo ──
+    with ext_col3:
+        st.markdown("##### 🏠 Inside Airbnb — Presion Turistica")
+        st.caption("Fuente: insideairbnb.com + Generalitat Valenciana")
+        airbnb_path = os.path.join(DATA_DIR, "synthetic_airbnb_density.csv")
+        if os.path.exists(airbnb_path):
+            df_airbnb = pd.read_csv(airbnb_path)
+            total_listings = int(df_airbnb["n_airbnb_listings"].sum())
+            tourism_barrios = int(df_airbnb["is_tourism_barrio"].sum())
+            st.markdown(
+                f"Distinguimos consumo turistico (legitimo) de anomalias reales. "
+                f"Sin esto, barrios con Airbnb generan falsos positivos.\n\n"
+                f"**{total_listings} listings**, **{tourism_barrios} barrios** con alta presion turistica"
+            )
+            top_air = df_airbnb.nlargest(5, "tourist_water_pressure_index")[
+                ["barrio", "n_airbnb_listings", "tourist_water_pressure_index"]
+            ]
+            top_air.columns = ["Barrio", "Listings", "TWPI"]
+            st.dataframe(top_air, use_container_width=True, hide_index=True)
+
+    ext_col4, ext_col5, ext_col6 = st.columns(3)
+
+    # ── 4. IGME Piezometria ──
+    with ext_col4:
+        st.markdown("##### 💧 IGME — Nivel Freatico")
+        st.caption("Fuente: Instituto Geologico y Minero de Espana")
+        piezo_path = os.path.join(DATA_DIR, "synthetic_piezometry.csv")
+        if os.path.exists(piezo_path):
+            df_piezo = pd.read_csv(piezo_path)
+            n_rising = int(df_piezo["wt_rising_anomaly"].sum())
+            st.markdown(
+                f"Si el nivel freatico SUBE sin lluvia, agua se filtra al subsuelo "
+                f"(fuga masiva de la red).\n\n"
+                f"**{n_rising} alertas** de subida anomala en {df_piezo['barrio'].nunique()} barrios"
+            )
+            rising = df_piezo[df_piezo["wt_rising_anomaly"] == True]
+            if not rising.empty:
+                top_wt = rising.groupby("barrio").size().nlargest(5).reset_index(name="Meses anomalos")
+                top_wt.columns = ["Barrio", "Meses anomalos"]
+                st.dataframe(top_wt, use_container_width=True, hide_index=True)
+
+    # ── 5. Electricidad / Agua ──
+    with ext_col5:
+        st.markdown("##### ⚡ REE — Ratio Electricidad/Agua")
+        st.caption("Fuente: Red Electrica de Espana")
+        elec_path = os.path.join(DATA_DIR, "synthetic_electricity_water_ratio.csv")
+        if os.path.exists(elec_path):
+            df_elec = pd.read_csv(elec_path)
+            n_elec_anom = int(df_elec["elec_water_anomaly_flag"].sum())
+            st.markdown(
+                f"Alto consumo electrico + bajo consumo agua = pozo ilegal o fraude. "
+                f"Bomba electrica sin agua facturada.\n\n"
+                f"**{n_elec_anom} anomalias** detectadas"
+            )
+            elec_anom = df_elec[df_elec["elec_water_anomaly_flag"] == True]
+            if not elec_anom.empty:
+                top_elec = elec_anom.groupby("barrio")["electricity_kwh_per_m3"].mean().nlargest(5).reset_index()
+                top_elec.columns = ["Barrio", "kWh/m3 medio"]
+                top_elec["kWh/m3 medio"] = top_elec["kWh/m3 medio"].round(2)
+                st.dataframe(top_elec, use_container_width=True, hide_index=True)
+
+    # ── 6. Catastro Individual ──
+    with ext_col6:
+        st.markdown("##### 🏗️ Catastro + IDAE — Benchmark Individual")
+        st.caption("Fuente: DGC Catastro INSPIRE WFS + IDAE")
+        catastro_path = os.path.join(DATA_DIR, "synthetic_catastro_households.csv")
+        if os.path.exists(catastro_path):
+            df_cat = pd.read_csv(catastro_path)
+            n_fuga = int((df_cat["consumption_efficiency_ratio"] > 1.5).sum())
+            n_fraude = int((df_cat["consumption_efficiency_ratio"] < 0.5).sum())
+            median_year = int(df_cat["construction_year"].median())
+            st.markdown(
+                f"Comparamos cada vivienda con su consumo ESPERADO segun m2, "
+                f"ano de construccion y estandar IDAE (128 L/persona/dia).\n\n"
+                f"**{len(df_cat)} viviendas**: {n_fuga} con exceso (>1.5x), "
+                f"{n_fraude} con subregistro (<0.5x). Mediana construccion: {median_year}"
+            )
+            top_ratio = df_cat.nlargest(5, "consumption_efficiency_ratio")[
+                ["contrato_id", "barrio", "building_m2", "construction_year", "consumption_efficiency_ratio"]
+            ]
+            top_ratio.columns = ["Contrato", "Barrio", "m2", "Ano", "Ratio"]
+            st.dataframe(top_ratio, use_container_width=True, hide_index=True)
+
+    # ── Imagenes satelite NDVI ──
+    comparison_img = os.path.join(DATA_DIR, "ndvi_comparison.png")
+    summer_img = os.path.join(DATA_DIR, "ndvi_summer_2024_map.png")
+    winter_img = os.path.join(DATA_DIR, "ndvi_winter_2024_map.png")
+
+    if os.path.exists(comparison_img) or (os.path.exists(summer_img) and os.path.exists(winter_img)):
+        st.markdown("---")
+        st.markdown("##### 🌿 Imagenes Satelite Reales — Sentinel-2 (ESA)")
+        if os.path.exists(comparison_img):
+            st.image(comparison_img,
+                     caption="Sentinel-2 real: Verano vs Invierno 2024. Zonas verdes en verano sin agua facturada = sospechosas.",
+                     use_container_width=True)
+        if os.path.exists(summer_img) and os.path.exists(winter_img):
+            img_c1, img_c2 = st.columns(2)
+            with img_c1:
+                st.image(summer_img, caption="Verano 2024 — Quien riega en plena sequia?")
+            with img_c2:
+                st.image(winter_img, caption="Invierno 2024 — Todo deberia estar mas verde")
+
     # ── Expander tecnico ──
     with st.expander("📊 Ver detalles tecnicos (KPIs, validacion, modelos)"):
         st.subheader("Metricas de Validacion")
