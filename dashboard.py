@@ -460,7 +460,7 @@ with tab2:
             match = df_insar[df_insar["barrio"].str.contains(barrio_name, case=False, na=False)]
             if not match.empty:
                 with col_ext1:
-                    val = match.iloc[0]["velocity_mm_year"]
+                    val = match.iloc[0]["subsidence_mm_yr"]
                     st.metric("📡 InSAR Subsidencia", f"{val:.1f} mm/a",
                               delta="anomalo" if val < -3 else "normal",
                               delta_color="inverse")
@@ -472,7 +472,7 @@ with tab2:
             match = df_piezo[df_piezo["barrio"].str.contains(barrio_name, case=False, na=False)]
             if not match.empty:
                 with col_ext2:
-                    anom_count = match["anomaly_flag"].sum()
+                    anom_count = int(match["wt_rising_anomaly"].sum())
                     st.metric("💧 IGME Piezometria", f"{anom_count} alertas",
                               delta="subida anomala" if anom_count > 0 else "normal",
                               delta_color="inverse" if anom_count > 0 else "normal")
@@ -484,8 +484,8 @@ with tab2:
             match = df_elec[df_elec["barrio"].str.contains(barrio_name, case=False, na=False)]
             if not match.empty:
                 with col_ext3:
-                    mean_ratio = match["elec_water_ratio"].mean()
-                    st.metric("⚡ Ratio Elec/Agua", f"{mean_ratio:.2f}",
+                    mean_ratio = match["electricity_kwh_per_m3"].mean()
+                    st.metric("⚡ Ratio Elec/Agua", f"{mean_ratio:.2f} kWh/m3",
                               delta="sospechoso" if mean_ratio > 4 else "normal",
                               delta_color="inverse" if mean_ratio > 4 else "normal")
 
