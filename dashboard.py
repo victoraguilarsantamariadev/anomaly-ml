@@ -118,7 +118,8 @@ def load_household_analysis():
         suspicious = get_suspicious_households(df_h, top_n=50)
         all_scores = get_all_scores(df_h)
         return suspicious, all_scores, df_h
-    except Exception:
+    except Exception as e:
+        st.warning(f"Error cargando household analysis: {e}")
         return pd.DataFrame(), pd.DataFrame(), None
 
 
@@ -138,7 +139,8 @@ def load_household_profiles():
     try:
         from external_data import load_household_profiles as _load
         return _load()
-    except Exception:
+    except Exception as e:
+        st.warning(f"Error cargando household profiles: {e}")
         return pd.DataFrame()
 
 

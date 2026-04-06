@@ -23,8 +23,6 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-
 HOURLY_DATA = Path(__file__).parent / "data" / "synthetic_hourly_domicilio.csv"
 LEAK_LABELS = Path(__file__).parent / "data" / "synthetic_leak_labels.csv"
 
@@ -289,6 +287,7 @@ def get_all_scores(df_hourly: pd.DataFrame | None = None) -> pd.DataFrame:
 # ─── CLI ─────────────────────────────────────────────────────────────────────
 
 def main():
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Detector de fugas en viviendas individuales")
     parser.add_argument("--barrio", default=None,
                         help="Numero o nombre del barrio (ej: 17 o CAROLINAS)")
