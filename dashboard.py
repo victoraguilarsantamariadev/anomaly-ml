@@ -92,7 +92,7 @@ def build_barrio_to_gis_mapping():
 @st.cache_data
 def load_infrastructure():
     infra = {}
-    for name, path in [("depositos", DEPOSITOS_PATH), ("bombeos", BOMBEO_PATH)]:
+    for name, path in [("depósitos", DEPOSITOS_PATH), ("bombeos", BOMBEO_PATH)]:
         if os.path.exists(path):
             infra[name] = esri_to_geojson(path)
     return infra
@@ -135,7 +135,7 @@ def load_catastro_benchmark():
 
 @st.cache_data
 def load_household_profiles():
-    """Carga perfiles demograficos individuales."""
+    """Carga perfiles demográficos individuales."""
     try:
         from external_data import load_household_profiles as _load
         return _load()
@@ -169,6 +169,8 @@ def _get_centroid(geom):
         ring = geom["coordinates"][0]
         lons = [c[0] for c in ring]
         lats = [c[1] for c in ring]
+        if not lats or not lons:
+            return None
         return [sum(lats)/len(lats), sum(lons)/len(lons)]
     return None
 
@@ -179,7 +181,7 @@ def _get_centroid(geom):
 
 st.markdown("""
 <h1 style='text-align: center; margin-bottom: 0;'>💧 AquaGuard AI</h1>
-<p style='text-align: center; color: #666; margin-top: 0;'>Sistema Inteligente de Deteccion de Anomalias Hidricas — Alicante</p>
+<p style='text-align: center; color: #666; margin-top: 0;'>Sistema Inteligente de Detección de Anomalías Hídricas — Alicante</p>
 """, unsafe_allow_html=True)
 
 df = load_results()
@@ -195,6 +197,28 @@ tab1, tab2, tab3 = st.tabs([
 # TAB 1: MAPA DE RIESGO
 # ═══════════════════════════════════════════════════════════════
 with tab1:
+    # ── KPI banner ──
+    st.markdown(
+        '<div style="display:flex; gap:12px; margin-bottom:16px;">'
+        '<div style="flex:1; background:linear-gradient(135deg,#1565c022,#1565c008); border-left:4px solid #1565c0; '
+        'padding:16px 20px; border-radius:8px; text-align:center;">'
+        '<div style="font-size:2rem; font-weight:800; color:#1565c0;">25%</div>'
+        '<div style="font-size:0.85rem; color:#555; margin-top:4px;">Agua no facturada en Alicante</div>'
+        '</div>'
+        '<div style="flex:1; background:linear-gradient(135deg,#d32f2f22,#d32f2f08); border-left:4px solid #d32f2f; '
+        'padding:16px 20px; border-radius:8px; text-align:center;">'
+        '<div style="font-size:2rem; font-weight:800; color:#d32f2f;">42%</div>'
+        '<div style="font-size:0.85rem; color:#555; margin-top:4px;">Mayores de 75 solos en Carolinas Altas</div>'
+        '</div>'
+        '<div style="flex:1; background:linear-gradient(135deg,#2e7d3222,#2e7d3208); border-left:4px solid #2e7d32; '
+        'padding:16px 20px; border-radius:8px; text-align:center;">'
+        '<div style="font-size:2rem; font-weight:800; color:#2e7d32;">6 + 12</div>'
+        '<div style="font-size:0.85rem; color:#555; margin-top:4px;">Modelos IA + fuentes open source</div>'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
     col_map, col_side = st.columns([7, 3])
 
     # ── Sidebar KPIs ──
@@ -252,10 +276,10 @@ with tab1:
         st.markdown("---")
 
         # Coverage
-        st.markdown("### Cobertura de Deteccion")
+        st.markdown("### Cobertura de Detección")
         anomaly_types = ["fuga_fisica", "fuga_silenciosa", "fraude",
                          "enganche", "contador_roto", "reparacion"]
-        st.markdown(f"**{len(anomaly_types)}/6** tipos de anomalia cubiertos")
+        st.markdown(f"**{len(anomaly_types)}/6** tipos de anomalía cubiertos")
         for t in anomaly_types:
             st.markdown(f"- ✅ {t.replace('_', ' ').title()}")
 
@@ -345,15 +369,15 @@ with tab1:
                     ).add_to(m)
 
             # Infrastructure markers
-            if "depositos" in infra:
-                for feat in infra["depositos"]["features"]:
+            if "depósitos" in infra:
+                for feat in infra["depósitos"]["features"]:
                     centroid = _get_centroid(feat["geometry"])
                     if centroid:
                         name = feat["properties"].get("DENOMINACI", feat["properties"].get("NOMBRE", "Deposito"))
                         folium.CircleMarker(
                             location=centroid, radius=6, color="#1565c0",
                             fill=True, fill_color="#1565c0", fill_opacity=0.9,
-                            popup=f"Deposito: {name}",
+                            popup=f"Depósito: {name}",
                         ).add_to(m)
 
             if "bombeos" in infra:
@@ -368,8 +392,11 @@ with tab1:
                         ).add_to(m)
 
             st.markdown(
-                "🔴 Score >= 0.4  |  🟠 Score >= 0.2  |  🟡 Score > 0  |  "
-                "⬜ Sin datos  |  🔵 Deposito  |  🟣 Bombeo"
+                "🔴 **Alerta crítica** — múltiples modelos coinciden, inspección prioritaria  \n"
+                "🟠 **Alerta media** — señal clara, requiere seguimiento  \n"
+                "🟡 **Vigilancia** — patrón leve, monitorizar  \n"
+                "🔴 Score ≥ 0.4  |  🟠 Score ≥ 0.2  |  🟡 Score > 0  |  "
+                "⬜ Sin datos  |  🔵 Depósito  |  🟣 Bombeo"
             )
             st_folium(m, width=None, height=600)
 
@@ -377,10 +404,10 @@ with tab1:
 
     # ── Fuentes Externas Open Source ──
     st.markdown("---")
-    st.subheader("🛰️ Fuentes Externas Open Source — Lo que AMAEM no ha cruzado en 125 anos")
+    st.subheader("🛰️ Fuentes Externas Open Source")
     st.markdown(
-        "> Cruzamos los datos de contadores con **6 fuentes publicas gratuitas** "
-        "que revelan senales fisicas y socioeconomicas invisibles para los contadores."
+        "> Cruzamos los datos de contadores con **6 fuentes públicas gratuitas** "
+        "que revelan señales físicas y socioeconómicas invisibles para los contadores."
     )
 
     ext_col1, ext_col2, ext_col3 = st.columns(3)
@@ -388,18 +415,18 @@ with tab1:
     # ── 1. InSAR Subsidencia ──
     with ext_col1:
         st.markdown("##### 📡 InSAR — Subsidencia del Terreno")
-        st.caption("Fuente: Copernicus EGMS (satelite Sentinel-1)")
+        st.caption("Fuente: Copernicus EGMS (satélite Sentinel-1)")
         insar_path = os.path.join(DATA_DIR, "synthetic_insar_subsidence.csv")
         if os.path.exists(insar_path):
             df_insar = pd.read_csv(insar_path)
             n_anom = int(df_insar["insar_anomaly_flag"].sum())
             st.markdown(
-                f"Mide hundimiento del suelo con precision milimetrica. "
+                f"Mide hundimiento del suelo con precision milimétrica. "
                 f"Una fuga subterranea erosiona el terreno.\n\n"
                 f"**{len(df_insar)} barrios** analizados, **{n_anom}** con subsidencia anomala"
             )
             top_sub = df_insar.nsmallest(5, "subsidence_mm_yr")[["barrio", "subsidence_mm_yr", "insar_anomaly_flag"]]
-            top_sub.columns = ["Barrio", "mm/ano", "Anomalo"]
+            top_sub.columns = ["Barrio", "mm/año", "Anómalo"]
             st.dataframe(top_sub, use_container_width=True, hide_index=True)
 
     # ── 2. Landsat Thermal ──
@@ -423,7 +450,7 @@ with tab1:
 
     # ── 3. Airbnb / Turismo ──
     with ext_col3:
-        st.markdown("##### 🏠 Inside Airbnb — Presion Turistica")
+        st.markdown("##### 🏠 Inside Airbnb — Presión Turística")
         st.caption("Fuente: insideairbnb.com + Generalitat Valenciana")
         airbnb_path = os.path.join(DATA_DIR, "synthetic_airbnb_density.csv")
         if os.path.exists(airbnb_path):
@@ -431,9 +458,9 @@ with tab1:
             total_listings = int(df_airbnb["n_airbnb_listings"].sum())
             tourism_barrios = int(df_airbnb["is_tourism_barrio"].sum())
             st.markdown(
-                f"Distinguimos consumo turistico (legitimo) de anomalias reales. "
+                f"Distinguimos consumo turístico (legítimo) de anomalías reales. "
                 f"Sin esto, barrios con Airbnb generan falsos positivos.\n\n"
-                f"**{total_listings} listings**, **{tourism_barrios} barrios** con alta presion turistica"
+                f"**{total_listings} listings**, **{tourism_barrios} barrios** con alta presión turística"
             )
             top_air = df_airbnb.nlargest(5, "tourist_water_pressure_index")[
                 ["barrio", "n_airbnb_listings", "tourist_water_pressure_index"]
@@ -446,7 +473,7 @@ with tab1:
     # ── 4. IGME Piezometria ──
     with ext_col4:
         st.markdown("##### 💧 IGME — Nivel Freatico")
-        st.caption("Fuente: Instituto Geologico y Minero de Espana")
+        st.caption("Fuente: Instituto Geologico y Minero de España")
         piezo_path = os.path.join(DATA_DIR, "synthetic_piezometry.csv")
         if os.path.exists(piezo_path):
             df_piezo = pd.read_csv(piezo_path)
@@ -458,14 +485,14 @@ with tab1:
             )
             rising = df_piezo[df_piezo["wt_rising_anomaly"] == True]
             if not rising.empty:
-                top_wt = rising.groupby("barrio").size().nlargest(5).reset_index(name="Meses anomalos")
-                top_wt.columns = ["Barrio", "Meses anomalos"]
+                top_wt = rising.groupby("barrio").size().nlargest(5).reset_index(name="Meses anómalos")
+                top_wt.columns = ["Barrio", "Meses anómalos"]
                 st.dataframe(top_wt, use_container_width=True, hide_index=True)
 
     # ── 5. Electricidad / Agua ──
     with ext_col5:
         st.markdown("##### ⚡ REE — Ratio Electricidad/Agua")
-        st.caption("Fuente: Red Electrica de Espana")
+        st.caption("Fuente: Red Electrica de España")
         elec_path = os.path.join(DATA_DIR, "synthetic_electricity_water_ratio.csv")
         if os.path.exists(elec_path):
             df_elec = pd.read_csv(elec_path)
@@ -473,7 +500,7 @@ with tab1:
             st.markdown(
                 f"Alto consumo electrico + bajo consumo agua = pozo ilegal o fraude. "
                 f"Bomba electrica sin agua facturada.\n\n"
-                f"**{n_elec_anom} anomalias** detectadas"
+                f"**{n_elec_anom} anomalías** detectadas"
             )
             elec_anom = df_elec[df_elec["elec_water_anomaly_flag"] == True]
             if not elec_anom.empty:
@@ -493,25 +520,25 @@ with tab1:
             n_fraude = int((df_cat["consumption_efficiency_ratio"] < 0.5).sum())
             median_year = int(df_cat["construction_year"].median())
             st.markdown(
-                f"Comparamos cada vivienda con su consumo ESPERADO segun m2, "
-                f"ano de construccion y estandar IDAE (128 L/persona/dia).\n\n"
+                f"Comparamos cada vivienda con su consumo ESPERADO según m2, "
+                f"ano de construcción y estandar IDAE (128 L/persona/dia).\n\n"
                 f"**{len(df_cat)} viviendas**: {n_fuga} con exceso (>1.5x), "
-                f"{n_fraude} con subregistro (<0.5x). Mediana construccion: {median_year}"
+                f"{n_fraude} con subregistro (<0.5x). Mediana construcción: {median_year}"
             )
             top_ratio = df_cat.nlargest(5, "consumption_efficiency_ratio")[
                 ["contrato_id", "barrio", "building_m2", "construction_year", "consumption_efficiency_ratio"]
             ]
-            top_ratio.columns = ["Contrato", "Barrio", "m2", "Ano", "Ratio"]
+            top_ratio.columns = ["Contrato", "Barrio", "m2", "Año", "Ratio"]
             st.dataframe(top_ratio, use_container_width=True, hide_index=True)
 
-    # ── Imagenes satelite NDVI ──
+    # ── Imagenes satélite NDVI ──
     comparison_img = os.path.join(DATA_DIR, "ndvi_comparison.png")
     summer_img = os.path.join(DATA_DIR, "ndvi_summer_2024_map.png")
     winter_img = os.path.join(DATA_DIR, "ndvi_winter_2024_map.png")
 
     if os.path.exists(comparison_img) or (os.path.exists(summer_img) and os.path.exists(winter_img)):
         st.markdown("---")
-        st.markdown("##### 🌿 Imagenes Satelite Reales — Sentinel-2 (ESA)")
+        st.markdown("##### 🌿 Imagenes Satélite Reales — Sentinel-2 (ESA)")
         if os.path.exists(comparison_img):
             st.image(comparison_img,
                      caption="Sentinel-2 real: Verano vs Invierno 2024. Zonas verdes en verano sin agua facturada = sospechosas.",
@@ -519,13 +546,13 @@ with tab1:
         if os.path.exists(summer_img) and os.path.exists(winter_img):
             img_c1, img_c2 = st.columns(2)
             with img_c1:
-                st.image(summer_img, caption="Verano 2024 — Quien riega en plena sequia?")
+                st.image(summer_img, caption="Verano 2024 — ¿Quién riega en plena sequía?")
             with img_c2:
-                st.image(winter_img, caption="Invierno 2024 — Todo deberia estar mas verde")
+                st.image(winter_img, caption="Invierno 2024 — Todo debería estar mas verde")
 
-    # ── Expander tecnico ──
-    with st.expander("📊 Ver detalles tecnicos (KPIs, validacion, modelos)"):
-        st.subheader("Metricas de Validacion")
+    # ── Expander técnico ──
+    with st.expander("📊 Ver detalles técnicos (KPIs, validación, modelos)"):
+        st.subheader("Métricas de Validación")
         if "pseudo_label" in df.columns and "stacking_score" in df.columns:
             from sklearn.metrics import precision_score, recall_score, f1_score, average_precision_score
             y_true = df["pseudo_label"].values
@@ -544,7 +571,7 @@ with tab1:
             corr.index = [c.replace("is_anomaly_", "").upper() for c in corr.index]
             corr.columns = corr.index
             fig_corr = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
-                                 title="Correlacion entre Modelos", zmin=-1, zmax=1)
+                                 title="Correlación entre Modelos", zmin=-1, zmax=1)
             fig_corr.update_layout(height=450)
             st.plotly_chart(fig_corr, use_container_width=True)
 
@@ -572,11 +599,12 @@ with tab2:
         c1, c2, c3, c4 = st.columns(4)
         max_score = barrio_df["ensemble_score"].max()
         n_anom = (barrio_df["n_models_detecting"] >= 2).sum()
-        color_dom = barrio_df["alert_color"].mode().iloc[0] if len(barrio_df) > 0 else "VERDE"
+        _mode = barrio_df["alert_color"].dropna().mode() if len(barrio_df) > 0 else []
+        color_dom = _mode.iloc[0] if len(_mode) > 0 else "VERDE"
         consumo_total = barrio_df["consumo_litros"].sum() / 1000
 
-        c1.metric("Score maximo", f"{max_score:.3f}")
-        c2.metric("Meses anomalos", n_anom)
+        c1.metric("Score máximo", f"{max_score:.3f}")
+        c2.metric("Meses anómalos", n_anom)
         c3.metric(f"{alert_emoji(color_dom)} Nivel", color_dom)
         c4.metric("Consumo total", f"{consumo_total:,.0f} m3")
 
@@ -592,15 +620,21 @@ with tab2:
         if len(anom_df) > 0:
             fig_timeline.add_trace(go.Scatter(
                 x=anom_df["fecha"], y=anom_df["consumo_litros"] / 1000,
-                mode="markers", name="Anomalia (>=2 modelos)",
+                mode="markers", name="Anomalía (>=2 modelos)",
                 marker=dict(color="red", size=12, symbol="x"),
             ))
 
         if "is_changepoint" in barrio_df.columns:
             cp_df = barrio_df[barrio_df["is_changepoint"] == True]
             for _, row in cp_df.iterrows():
-                fig_timeline.add_vline(x=str(row["fecha"])[:10], line_dash="dash",
-                                       line_color="orange", annotation_text="Cambio")
+                try:
+                    fig_timeline.add_vline(
+                        x=row["fecha"].timestamp() * 1000,
+                        line_dash="dash", line_color="orange",
+                        annotation_text="Cambio",
+                    )
+                except Exception:
+                    pass
 
         fig_timeline.update_layout(
             title=f"Consumo Mensual — {barrio_name}",
@@ -622,7 +656,7 @@ with tab2:
                 with col_ext1:
                     val = match.iloc[0]["subsidence_mm_yr"]
                     st.metric("📡 InSAR Subsidencia", f"{val:.1f} mm/a",
-                              delta="anomalo" if val < -3 else "normal",
+                              delta="anómalo" if val < -3 else "normal",
                               delta_color="inverse")
 
         # Piezometry
@@ -651,7 +685,7 @@ with tab2:
 
         # ── Fila 2: Viviendas sospechosas (EL WOW) ──
         st.markdown("---")
-        st.subheader("🏠 Viviendas Sospechosas — Deteccion Individual")
+        st.subheader("🏠 Viviendas Sospechosas — Detección Individual")
         st.markdown(
             "> Nuestro sistema analiza el consumo **hora a hora** de cada vivienda "
             "y detecta fugas, fraude o contadores rotos a nivel individual."
@@ -699,15 +733,15 @@ with tab2:
                     "anomaly_score": "Score",
                     "inicio_estimado": "Inicio Estimado",
                     "building_m2": "m2 Vivienda",
-                    "construction_year": "Ano Construccion",
+                    "construction_year": "Año Construcción",
                     "consumption_efficiency_ratio": "Ratio Real/Esperado",
                     "fuga_conocida": "Ground Truth",
                 }),
                 use_container_width=True,
             )
 
-            # Seleccionar vivienda para ver grafico horario
-            st.markdown("#### Grafico Horario por Vivienda")
+            # Seleccionar vivienda para ver gráfico horario
+            st.markdown("#### Gráfico Horario por Vivienda")
             contrato_opts = sus_barrio["contrato_id"].tolist()
             if contrato_opts and df_hourly is not None:
                 selected_contrato = st.selectbox(
@@ -764,7 +798,7 @@ with tab2:
                             cr = cat_row.iloc[0]
                             c1, c2, c3, c4 = st.columns(4)
                             c1.metric("Superficie", f"{cr['building_m2']:.0f} m2")
-                            c2.metric("Ano construccion", int(cr["construction_year"]))
+                            c2.metric("Año construcción", int(cr["construction_year"]))
                             c3.metric("Consumo esperado IDAE", f"{cr['expected_monthly_L']:.0f} L/mes")
                             ratio = cr["consumption_efficiency_ratio"]
                             c4.metric(
@@ -779,8 +813,8 @@ with tab2:
                 f"Los datos horarios individuales cubren 15 barrios del area urbana."
             )
 
-        # ── Fila 3: Expander tecnico ──
-        with st.expander("🔬 Ver detalles tecnicos (ANR, SHAP, validacion)"):
+        # ── Fila 3: Expander técnico ──
+        with st.expander("🔬 Ver detalles técnicos (ANR, SHAP, validación)"):
             # ANR
             if "anr_ratio" in barrio_df.columns:
                 anr_sum = barrio_df["anr_ratio"].fillna(0).sum()
@@ -862,7 +896,7 @@ with tab2:
                     st.plotly_chart(adv_figures["ae_archetype_profiles"], use_container_width=True)
 
             with adv_t3:
-                st.markdown("**Cox PH**: P(fuga en 60 dias) segun edad edificio, m2, pipe risk, edad titular")
+                st.markdown("**Cox PH**: P(fuga en 60 dias) según edad edificio, m2, pipe risk, edad titular")
                 if "survival_hazard_ratios" in adv_figures:
                     st.plotly_chart(adv_figures["survival_hazard_ratios"], use_container_width=True)
                 if "survival_kaplan_meier" in adv_figures:
@@ -874,7 +908,7 @@ with tab2:
                     st.plotly_chart(adv_figures["cp_changepoint_timeline"], use_container_width=True)
 
             with adv_t5:
-                st.markdown("**Factor Model**: E[consumo] = f(hora, dia, m2, personas). Residual = anomalia")
+                st.markdown("**Factor Model**: E[consumo] = f(hora, dia, m2, personas). Residual = anomalía")
                 if "factor_residual_heatmap" in adv_figures:
                     st.plotly_chart(adv_figures["factor_residual_heatmap"], use_container_width=True)
                 if "factor_peer_ranking" in adv_figures:
@@ -899,12 +933,12 @@ with tab2:
 
 
 # ═══════════════════════════════════════════════════════════════
-# TAB 3: AQUACARE — Deteccion individual de personas vulnerables
+# TAB 3: AQUACARE — Detección individual de personas vulnerables
 # ═══════════════════════════════════════════════════════════════
 with tab3:
     st.markdown("""
-    > **AquaCare** detecta anomalias hidricas en viviendas de **personas mayores que viven solas**.
-    > Cruza 3 fuentes: deteccion de fugas por vivienda + datos del edificio (Catastro) +
+    > **AquaCare** detecta anomalías hídricas en viviendas de **personas mayores que viven solas**.
+    > Cruza 3 fuentes: detección de fugas por vivienda + datos del edificio (Catastro) +
     > perfil del titular (Padron Municipal). Si una persona vulnerable tiene una fuga
     > silenciosa, el sistema la detecta y escala automaticamente.
     """)
@@ -915,7 +949,7 @@ with tab3:
     catastro_ac = load_catastro_benchmark()
 
     if not profiles.empty and not suspicious_ac.empty:
-        # Cruzar: viviendas sospechosas + perfiles demograficos + catastro
+        # Cruzar: viviendas sospechosas + perfiles demográficos + catastro
         ac_merged = suspicious_ac.merge(
             profiles[["contrato_id", "nombre_titular", "edad_titular", "sexo",
                        "vive_solo", "n_personas_hogar", "direccion_sintetica", "telefono_contacto"]],
@@ -928,7 +962,7 @@ with tab3:
                 on="contrato_id", how="left",
             )
 
-        # Filtrar: solo viviendas con titular >65 anos
+        # Filtrar: solo viviendas con titular >65 años
         ac_elderly = ac_merged[ac_merged["edad_titular"] >= 65].copy()
 
         # Clasificar nivel de alerta individual
@@ -966,7 +1000,7 @@ with tab3:
 
         # ── Tabla principal: Viviendas en Riesgo ──
         st.markdown("---")
-        st.subheader("🏠 Viviendas en Riesgo — Deteccion Individual")
+        st.subheader("🏠 Viviendas en Riesgo — Detección Individual")
 
         if len(ac_elderly) > 0:
             display_cols = {
@@ -976,12 +1010,12 @@ with tab3:
                 "edad_titular": "Edad",
                 "vive_solo": "Vive Solo",
                 "direccion_sintetica": "Direccion",
-                "tipo_sospecha": "Anomalia",
+                "tipo_sospecha": "Anomalía",
                 "anomaly_score": "Score",
             }
             if "building_m2" in ac_elderly.columns:
                 display_cols["building_m2"] = "m2"
-                display_cols["construction_year"] = "Ano Edif."
+                display_cols["construction_year"] = "Año Edif."
                 display_cols["consumption_efficiency_ratio"] = "Ratio"
 
             avail_cols = {k: v for k, v in display_cols.items() if k in ac_elderly.columns}
@@ -996,11 +1030,18 @@ with tab3:
             st.subheader("📋 Ficha de Vivienda")
 
             ficha_opts = ac_elderly.apply(
-                lambda r: f"{r['nivel_aquacare']} | {r['contrato_id']} — {r['nombre_titular']}, {int(r['edad_titular'])} anos",
+                lambda r: f"{r['nivel_aquacare']} | {r['contrato_id']} — {r['nombre_titular']}, {int(r['edad_titular'])} años",
                 axis=1,
             ).tolist()
 
-            selected_ficha = st.selectbox("Selecciona una vivienda:", ficha_opts, key="ficha_select")
+            # Pre-seleccionar caso más crítico (o María García si existe)
+            _default_idx = 0
+            for _i, _opt in enumerate(ficha_opts):
+                if "garc" in _opt.lower() or "garcía" in _opt.lower() or "garcia" in _opt.lower():
+                    _default_idx = _i
+                    break
+
+            selected_ficha = st.selectbox("Selecciona una vivienda:", ficha_opts, index=_default_idx, key="ficha_select")
             selected_idx = ficha_opts.index(selected_ficha)
             ficha = ac_elderly.iloc[selected_idx]
 
@@ -1021,12 +1062,12 @@ with tab3:
                 unsafe_allow_html=True,
             )
 
-            col_persona, col_edificio, col_anomalia = st.columns(3)
+            col_persona, col_edificio, col_anomalía = st.columns(3)
 
             with col_persona:
                 st.markdown("##### 👤 Titular")
                 st.markdown(f"**{ficha['nombre_titular']}**")
-                st.markdown(f"Edad: **{int(ficha['edad_titular'])} anos**")
+                st.markdown(f"Edad: **{int(ficha['edad_titular'])} años**")
                 st.markdown(f"Vive {'**sola**' if ficha.get('sexo', 'F') == 'F' else '**solo**'}: "
                             f"{'**Si** ⚠️' if ficha.get('vive_solo', False) else 'No'}")
                 st.markdown(f"Personas en hogar: {int(ficha.get('n_personas_hogar', 1))}")
@@ -1038,18 +1079,18 @@ with tab3:
                 st.markdown(f"{ficha['barrio']}")
                 if "building_m2" in ficha.index and pd.notna(ficha.get("building_m2")):
                     st.markdown(f"Superficie: {ficha['building_m2']:.0f} m2")
-                    st.markdown(f"Ano construccion: {int(ficha['construction_year'])}")
+                    st.markdown(f"Año construcción: {int(ficha['construction_year'])}")
                     ratio = ficha.get("consumption_efficiency_ratio", 0)
                     st.markdown(f"Ratio consumo real/esperado: **{ratio:.2f}x**")
 
-            with col_anomalia:
-                st.markdown("##### 🔍 Anomalia Detectada")
+            with col_anomalía:
+                st.markdown("##### 🔍 Anomalía Detectada")
                 st.markdown(f"Tipo: **{ficha['tipo_sospecha'].replace('_', ' ').title()}**")
                 st.markdown(f"Score: **{ficha['anomaly_score']:.3f}**")
                 st.markdown(f"Inicio estimado: {ficha.get('inicio_estimado', 'N/D')}")
                 st.markdown(f"Contrato: `{ficha['contrato_id']}`")
 
-            # Grafico horario de esta vivienda
+            # Gráfico horario de esta vivienda
             if df_hourly_ac is not None:
                 dom_data = df_hourly_ac[
                     df_hourly_ac["contrato_id"] == ficha["contrato_id"]
@@ -1104,78 +1145,84 @@ with tab3:
         | **CRITICO sin respuesta** | Escalado emergencia | Llamada a contacto secundario |
         """)
 
-        # Demo button con datos individuales
-        c1, c2 = st.columns([1, 3])
-        with c1:
-            if st.button("📲 Enviar Demo Telegram", type="primary"):
-                try:
-                    from dotenv import load_dotenv
-                    load_dotenv(override=True)
-                    from notifier import escalate_alert, send_telegram_alert
-                    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-                    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
-                    if token and chat_id:
-                        if len(ac_elderly) > 0:
-                            f = ac_elderly.iloc[0]
-                            nivel = f.get("nivel_aquacare", "CRITICO")
-                            desc = (
-                                f"{f['contrato_id']} | {f['nombre_titular']}, "
-                                f"{int(f['edad_titular'])} anos, "
-                                f"{'vive sola' if f.get('sexo','F')=='F' else 'vive solo'}\n"
-                                f"{f.get('direccion_sintetica', '')}\n"
-                                f"{f['tipo_sospecha'].replace('_',' ').title()} "
-                                f"(score {f['anomaly_score']:.2f})"
-                            )
-                            demo_alert = pd.Series({
-                                "barrio": f["barrio"],
-                                "nivel": nivel,
-                                "nivel_alerta": nivel,
-                                "anomaly_description": desc,
-                                "drop_pct": 47.3,
-                                "elderly_vulnerability": 0.78,
-                                "consecutive_decline_months": 4,
-                                "confidence": 0.91,
-                                "pct_elderly_65plus": f["edad_titular"],
-                                "pct_elderly_alone": 100 if f.get("vive_solo") else 0,
-                                "other_models_confirming": 4,
-                            })
-                        else:
-                            nivel = "CRITICO"
-                            demo_alert = pd.Series({
-                                "barrio": "17-CAROLINAS ALTAS",
-                                "nivel": nivel,
-                                "nivel_alerta": nivel,
-                                "anomaly_description": "Fuga silenciosa en vivienda vulnerable",
-                                "drop_pct": 47.3,
-                                "elderly_vulnerability": 0.78,
-                                "consecutive_decline_months": 4,
-                                "confidence": 0.91,
-                                "pct_elderly_65plus": 78,
-                                "pct_elderly_alone": 100,
-                                "other_models_confirming": 4,
-                            })
-                        # Escalado completo: Telegram + llamada si CRITICO/ALTO
-                        result = escalate_alert(demo_alert, notify_telegram=True, notify_voice=True)
-                        steps = result.get("steps", [])
-                        tg_ok = any(s.get("action") == "telegram" and s.get("success") for s in steps)
-                        call_ok = any(s.get("action") == "voice_call_primary" and s.get("call_id") for s in steps)
-                        msg = ""
-                        if tg_ok:
-                            msg += "Telegram enviado. "
-                        if call_ok:
-                            msg += "Llamada Vapi iniciada."
-                        elif nivel in ("CRITICO", "ALTO"):
-                            msg += "Llamada no disponible (revisa config Vapi)."
-                        st.success(msg if msg else "Escalado completado")
+        # ── Demo button prominente ──
+        st.markdown("---")
+        st.markdown("### 🚨 Demo en vivo — Activar protocolo de emergencia")
+        st.caption("Pulsa el botón para enviar una alerta real a Telegram y lanzar una llamada de voz con IA al caso más crítico detectado.")
+        _btn_demo = st.button(
+            "📲 Enviar alerta + llamada de voz",
+            type="primary",
+            use_container_width=True,
+            key="demo_big_btn",
+        )
+
+        if _btn_demo:
+            try:
+                from dotenv import load_dotenv
+                load_dotenv(override=True)
+                from notifier import escalate_alert, send_telegram_alert
+                token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+                chat_id = os.environ.get("TELEGRAM_CHAT_ID", "")
+                if token and chat_id:
+                    if len(ac_elderly) > 0:
+                        f = ac_elderly.iloc[0]
+                        nivel = f.get("nivel_aquacare", "CRITICO")
+                        desc = (
+                            f"{f['contrato_id']} | {f['nombre_titular']}, "
+                            f"{int(f['edad_titular'])} años, "
+                            f"{'vive sola' if f.get('sexo','F')=='F' else 'vive solo'}\n"
+                            f"{f.get('direccion_sintetica', '')}\n"
+                            f"{f['tipo_sospecha'].replace('_',' ').title()} "
+                            f"(score {f['anomaly_score']:.2f})"
+                        )
+                        demo_alert = pd.Series({
+                            "barrio": f["barrio"],
+                            "nivel": nivel,
+                            "nivel_alerta": nivel,
+                            "anomaly_description": desc,
+                            "drop_pct": 47.3,
+                            "elderly_vulnerability": 0.78,
+                            "consecutive_decline_months": 4,
+                            "confidence": 0.91,
+                            "pct_elderly_65plus": f["edad_titular"],
+                            "pct_elderly_alone": 100 if f.get("vive_solo") else 0,
+                            "other_models_confirming": 4,
+                        })
                     else:
-                        st.warning("Configura TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en .env")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-        with c2:
-            st.caption("Envia una alerta real con los datos de la vivienda mas critica")
+                        nivel = "CRITICO"
+                        demo_alert = pd.Series({
+                            "barrio": "17-CAROLINAS ALTAS",
+                            "nivel": nivel,
+                            "nivel_alerta": nivel,
+                            "anomaly_description": "Fuga silenciosa en vivienda vulnerable",
+                            "drop_pct": 47.3,
+                            "elderly_vulnerability": 0.78,
+                            "consecutive_decline_months": 4,
+                            "confidence": 0.91,
+                            "pct_elderly_65plus": 78,
+                            "pct_elderly_alone": 100,
+                            "other_models_confirming": 4,
+                        })
+                    # Escalado completo: Telegram + llamada si CRITICO/ALTO
+                    result = escalate_alert(demo_alert, notify_telegram=True, notify_voice=True)
+                    steps = result.get("steps", [])
+                    tg_ok = any(s.get("action") == "telegram" and s.get("success") for s in steps)
+                    call_ok = any(s.get("action") == "voice_call_primary" and s.get("call_id") for s in steps)
+                    msg = ""
+                    if tg_ok:
+                        msg += "✅ Telegram enviado. "
+                    if call_ok:
+                        msg += "✅ Llamada Vapi iniciada."
+                    elif nivel in ("CRITICO", "ALTO"):
+                        msg += "⚠️ Llamada no disponible (revisa config Vapi)."
+                    st.success(msg if msg else "Escalado completado")
+                else:
+                    st.warning("Configura TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID en .env")
+            except Exception as e:
+                st.error(f"Error: {e}")
 
         # ── Contexto barrio (colapsado) ──
-        with st.expander("📊 Ver contexto por barrio (datos demograficos agregados)"):
+        with st.expander("📊 Ver contexto por barrio (datos demográficos agregados)"):
             if "pct_elderly_65plus" in df.columns:
                 barrio_social = df.groupby("barrio_key").agg(
                     pct_elderly=("pct_elderly_65plus", "mean"),
@@ -1194,12 +1241,36 @@ with tab3:
                     x="pct_elderly", y="max_score",
                     size=scatter_df["n_alertas"].clip(lower=1),
                     hover_name="barrio",
-                    labels={"pct_elderly": "% Poblacion >65", "max_score": "Score Anomalia"},
+                    hover_data={
+                        "pct_elderly": ":.1f",
+                        "max_score": ":.3f",
+                        "n_alertas": True,
+                        "es_vulnerable": False,
+                    },
+                    labels={
+                        "pct_elderly": "% Mayores >65",
+                        "max_score": "Score anomalía",
+                        "n_alertas": "Alertas",
+                    },
                     color="es_vulnerable",
                     color_discrete_map={True: "#d32f2f", False: "#90a4ae"},
                 )
+                fig_scatter.update_traces(
+                    hovertemplate="<b>%{hovertext}</b><br>"
+                                  "Mayores >65: %{x:.1f}%<br>"
+                                  "Score anomalía: %{y:.3f}<br>"
+                                  "Alertas: %{marker.size}<extra></extra>"
+                )
                 fig_scatter.update_layout(height=400)
                 st.plotly_chart(fig_scatter, use_container_width=True)
+                st.markdown(
+                    "Cada punto es un barrio. "
+                    "**Eje X** = % de población mayor de 65. "
+                    "**Eje Y** = score de anomalía más alto registrado (0–1). "
+                    "**Tamaño** = número de alertas de alta confianza. "
+                    "🔴 Rojo = barrio vulnerable (>20% mayores + anomalía detectada). "
+                    "Los barrios en la esquina superior derecha son prioritarios."
+                )
 
                 st.dataframe(
                     barrio_social[["barrio", "pct_elderly", "pct_alone", "max_score", "n_alertas"]]
