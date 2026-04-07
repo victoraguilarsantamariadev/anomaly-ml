@@ -1063,12 +1063,15 @@ with tab3:
             nivel_emoji = {"CRITICO": "🔴", "ALTO": "🟠", "VIGILANCIA": "🟡"}.get(
                 ficha["nivel_aquacare"], "⬜"
             )
+            nivel_label = {"CRITICO": "CRÍTICA", "ALTO": "ALTA", "VIGILANCIA": "VIGILANCIA"}.get(
+                ficha["nivel_aquacare"], ficha["nivel_aquacare"]
+            )
 
             st.markdown(
                 f'<div style="background: linear-gradient(135deg, {nivel_color}22, {nivel_color}08); '
                 f'border-left: 4px solid {nivel_color}; padding: 20px; border-radius: 8px; margin: 10px 0;">'
                 f'<h3 style="margin:0; color:{nivel_color};">'
-                f'{nivel_emoji} ALERTA {ficha["nivel_aquacare"]} — AquaCare</h3>'
+                f'{nivel_emoji} ALERTA {nivel_label} — AquaCare</h3>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
