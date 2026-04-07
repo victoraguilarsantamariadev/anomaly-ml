@@ -393,17 +393,16 @@ with tab1:
             df.drop(columns=["_barrio_clean"], inplace=True, errors="ignore")
 
     # ── Cobertura de Detección ──
-    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
     anomaly_types = ["fuga_fisica", "fuga_silenciosa", "fraude",
                      "enganche", "contador_roto", "reparacion"]
-    cov_cols = st.columns(len(anomaly_types))
-    for col, t in zip(cov_cols, anomaly_types):
-        col.markdown(
-            f'<div style="text-align:center; padding:8px 4px; background:#1e1e1e; '
-            f'border-radius:6px; font-size:0.82rem;">✅ {t.replace("_", " ").title()}</div>',
-            unsafe_allow_html=True,
-        )
-    st.caption(f"Cobertura de detección: **{len(anomaly_types)}/6** tipos de anomalía cubiertos")
+    _cov_items = " &nbsp;·&nbsp; ".join(
+        f"✅ {t.replace('_', ' ').title()}" for t in anomaly_types
+    )
+    st.markdown(
+        f'<p style="margin: 12px 0 0 0; font-size:0.82rem; color:#aaa;">'
+        f'Cobertura 6/6 — {_cov_items}</p>',
+        unsafe_allow_html=True,
+    )
 
     # ── Fuentes Externas Open Source ──
     st.markdown("---")
