@@ -273,16 +273,6 @@ with tab1:
                 f"Score: {row['score']:.2f} | {int(row['n_models'])} modelos"
             )
 
-        st.markdown("---")
-
-        # Coverage
-        st.markdown("### Cobertura de Detección")
-        anomaly_types = ["fuga_fisica", "fuga_silenciosa", "fraude",
-                         "enganche", "contador_roto", "reparacion"]
-        st.markdown(f"**{len(anomaly_types)}/6** tipos de anomalía cubiertos")
-        for t in anomaly_types:
-            st.markdown(f"- ✅ {t.replace('_', ' ').title()}")
-
     # ── Mapa principal ──
     with col_map:
         gis_layers = load_geojson()
@@ -401,6 +391,19 @@ with tab1:
             st_folium(m, width=None, height=600)
 
             df.drop(columns=["_barrio_clean"], inplace=True, errors="ignore")
+
+    # ── Cobertura de Detección ──
+    st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+    anomaly_types = ["fuga_fisica", "fuga_silenciosa", "fraude",
+                     "enganche", "contador_roto", "reparacion"]
+    cov_cols = st.columns(len(anomaly_types))
+    for col, t in zip(cov_cols, anomaly_types):
+        col.markdown(
+            f'<div style="text-align:center; padding:8px 4px; background:#1e1e1e; '
+            f'border-radius:6px; font-size:0.82rem;">✅ {t.replace("_", " ").title()}</div>',
+            unsafe_allow_html=True,
+        )
+    st.caption(f"Cobertura de detección: **{len(anomaly_types)}/6** tipos de anomalía cubiertos")
 
     # ── Fuentes Externas Open Source ──
     st.markdown("---")
