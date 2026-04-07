@@ -876,17 +876,25 @@ with tab2:
         > Spectral FFT, Autoencoder + UMAP, Survival Cox, BOCPD Changepoints, Factor Model.
         """)
 
-        @st.cache_data
+        @st.cache_resource
         def _load_advanced_results():
+            import io as _io
+            _old_stdout = sys.stdout
+            sys.stdout = _io.StringIO()
             try:
                 from advanced_household_analytics import run_all_advanced
-                return run_all_advanced()
+                result = run_all_advanced()
             except Exception as e:
-                return pd.DataFrame(), {}
+                result = pd.DataFrame(), {"_error": str(e)}
+            finally:
+                sys.stdout = _old_stdout
+            return result
 
         adv_combined, adv_figures = _load_advanced_results()
 
-        if not adv_combined.empty:
+        if "_error" in adv_figures:
+            st.error(f"Error cargando Advanced Analytics: {adv_figures['_error']}")
+        elif not adv_combined.empty:
             adv_t1, adv_t2, adv_t3, adv_t4, adv_t5 = st.tabs([
                 "📊 Spectral FFT", "🧬 Autoencoder UMAP", "⏳ Survival Cox",
                 "📍 Changepoint BOCPD", "📐 Factor Model",
@@ -939,7 +947,7 @@ with tab2:
                 if c in adv_combined.columns:
                     show_cols.append(c)
             st.dataframe(adv_combined[show_cols].head(15), use_container_width=True)
-        else:
+        elif "_error" not in adv_figures:
             st.info("Ejecuta `python advanced_household_analytics.py` para generar resultados.")
 
 
