@@ -377,7 +377,7 @@ with tab1:
 
     # ── Fuentes Externas Open Source ──
     st.markdown("---")
-    st.subheader("🛰️ Fuentes Externas Open Source — Lo que AMAEM no ha cruzado en 125 anos")
+    st.subheader("🛰️ Fuentes Externas Open Source")
     st.markdown(
         "> Cruzamos los datos de contadores con **6 fuentes publicas gratuitas** "
         "que revelan senales fisicas y socioeconomicas invisibles para los contadores."
