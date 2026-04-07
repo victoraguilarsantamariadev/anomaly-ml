@@ -393,16 +393,18 @@ with tab1:
             df.drop(columns=["_barrio_clean"], inplace=True, errors="ignore")
 
     # ── Cobertura de Detección ──
-    anomaly_types = ["fuga_fisica", "fuga_silenciosa", "fraude",
-                     "enganche", "contador_roto", "reparacion"]
-    _cov_items = " &nbsp;·&nbsp; ".join(
-        f"✅ {t.replace('_', ' ').title()}" for t in anomaly_types
-    )
-    st.markdown(
-        f'<p style="margin: 12px 0 0 0; font-size:0.82rem; color:#aaa;">'
-        f'Cobertura 6/6 — {_cov_items}</p>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("### 🛡️ Cobertura de Detección")
+    anomaly_types = [
+        ("fuga_fisica",     "Fuga Física",     "Rotura de tubería, pérdida brusca de presión"),
+        ("fuga_silenciosa", "Fuga Silenciosa",  "Consumo nocturno continuo, no detectable visualmente"),
+        ("fraude",          "Fraude",           "Manipulación de contador o bypass ilegal"),
+        ("enganche",        "Enganche",         "Conexión no autorizada a la red"),
+        ("contador_roto",   "Contador Roto",    "Medición errónea por fallo mecánico"),
+        ("reparacion",      "Reparación",       "Caída de consumo post-intervención, validación de obra"),
+    ]
+    _cov_cols = st.columns(2)
+    for i, (_, label, desc) in enumerate(anomaly_types):
+        _cov_cols[i % 2].markdown(f"✅ **{label}** — {desc}")
 
     # ── Fuentes Externas Open Source ──
     st.markdown("---")
