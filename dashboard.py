@@ -471,6 +471,13 @@ with tab1:
             top_air.columns = ["Barrio", "Listings", "TWPI"]
             st.dataframe(top_air, use_container_width=True, hide_index=True)
 
+    st.markdown(
+        '<div style="margin: 32px 0 28px 0; height: 3px; '
+        'background: linear-gradient(90deg, #1565c0, #7b1fa2, #d32f2f); '
+        'border-radius: 2px; opacity: 0.6;"></div>',
+        unsafe_allow_html=True,
+    )
+
     ext_col4, ext_col5, ext_col6 = st.columns(3)
 
     # ── 4. IGME Piezometria ──
